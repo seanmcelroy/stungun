@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,11 +9,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using stungun.common.core;
 
-namespace stungun.client.core
+namespace stungun.common.client
 {
     public class StunUdpClient : IStunClient, IDisposable
     {
-        private UdpClient udpClient;
+        private UdpClient? udpClient;
         // To detect redundant calls
         private bool _disposed = false;
 
@@ -28,15 +29,23 @@ namespace stungun.client.core
 
         ~StunUdpClient() => Dispose(false);
 
-        public async Task<MessageResponse> BindingRequestAsync(int connectTimeout = 5000, int recvTimeout = 5000, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<MessageResponse> BindingRequestAsync(
+            IList<MessageAttribute>? attributes = null,
+            int connectTimeout = 5000,
+            int recvTimeout = 5000,
+            CancellationToken cancellationToken = default(CancellationToken),
+            byte[]? customTransactionId = null)
         {
             byte[] responseBytes;
 
-            var message = Message.CreateBindingRequest();
-            message.Header.PrintDebug();
+            var message = Message.CreateBindingRequest(attributes, customTransactionId);
+            message.PrintDebug();
             var messageBytes = message.ToByteArray();
-            await Console.Error.WriteAsync("SENDING: ");
+            await Console.Error.WriteAsync("SENDING:  ");
             await Console.Error.WriteLineAsync(messageBytes.Select(b => $"{b:x2}").Aggregate((c, n) => c + n));
+
+            if (udpClient == null)
+                throw new ObjectDisposedException(nameof(udpClient));
 
             udpClient.Connect(this.Hostname, this.Port);
             var localEndpoint = (IPEndPoint)udpClient.Client.LocalEndPoint;
@@ -52,7 +61,17 @@ namespace stungun.client.core
                 await udpClient.SendAsync(messageBytes, messageBytes.Length);
                 do
                 {
-                    var udpResult = await udpClient.ReceiveAsync();
+                    var udpReceiveTask = udpClient.ReceiveAsync();
+                    if (await Task.WhenAny(udpReceiveTask, Task.Delay(recvTimeout)) != udpReceiveTask)
+                        return new MessageResponse
+                        {
+                            LocalEndpoint = localEndpoint,
+                            RemoteEndpoint = remoteEndpoint,
+                            Success = false,
+                            ErrorMessage = $"Timeout receiving UDP response from {this.Hostname}:{this.Port} after {sw.ElapsedMilliseconds}ms"
+                        };
+
+                    var udpResult = await udpReceiveTask;
                     bytesRead = (ushort)udpResult.Buffer.Length;
                     totalBytesRead += bytesRead;
                     if (bytesRead > 0)
@@ -64,6 +83,25 @@ namespace stungun.client.core
 
                     if (totalBytesRead >= messageLength + 20)
                         break;
+
+                    if (cancellationToken.IsCancellationRequested)
+                        return new MessageResponse
+                        {
+                            LocalEndpoint = localEndpoint,
+                            RemoteEndpoint = remoteEndpoint,
+                            Success = false,
+                            ErrorMessage = $"Receive cancelled"
+                        };
+
+                    if (sw.ElapsedMilliseconds >= recvTimeout)
+                        return new MessageResponse
+                        {
+                            LocalEndpoint = localEndpoint,
+                            RemoteEndpoint = remoteEndpoint,
+                            Success = false,
+                            ErrorMessage = $"Timeout receiving UDP response from {this.Hostname}:{this.Port} after {sw.ElapsedMilliseconds}ms"
+                        };
+
                 } while ((bytesRead > 0 || sw.ElapsedMilliseconds < recvTimeout) && !cancellationToken.IsCancellationRequested);
                 await ms.FlushAsync(cancellationToken);
                 responseBytes = ms.ToArray();
@@ -75,6 +113,8 @@ namespace stungun.client.core
             await Console.Error.WriteLineAsync(responseBytes.Select(b => $"{b:x2}").Aggregate((c, n) => c + n));
 
             var msg = Message.Parse(responseBytes);
+            msg.PrintDebug();
+
             return new MessageResponse
             {
                 LocalEndpoint = localEndpoint,
@@ -100,6 +140,7 @@ namespace stungun.client.core
             if (disposing)
             {
                 udpClient?.Dispose();
+                udpClient = null;
             }
 
             // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.

@@ -2,6 +2,11 @@ namespace stungun.common.core
 {
     public class MappedAddressAttribute : AddressAttribute
     {
+        public MappedAddressAttribute()
+        {
+            this.Type = AttributeType.MappedAddress;
+        }
+
         public new static MappedAddressAttribute FromGenericAttribute(MessageAttribute attr)
         {
             return new MappedAddressAttribute

@@ -1,0 +1,104 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
+using stungun.common.core;
+
+namespace stungun.common.client
+{
+    public class DiscoveryClient
+    {
+        private readonly string stunHostname;
+        private readonly int stunPort;
+
+        public DiscoveryClient(
+            string stunHostname = "127.0.0.1", //  "stun.stunprotocol.org",
+            int stunPort = 3478)
+        {
+            this.stunHostname = stunHostname;
+            this.stunPort = stunPort;
+        }
+
+        public async Task<NatType> DiscoverAsync(CancellationToken cancellationToken = default(CancellationToken))
+        {
+            MessageResponse test1;
+            using (var stunUdpClient = new StunUdpClient(stunHostname, stunPort))
+            {
+                test1 = await stunUdpClient.BindingRequestAsync(cancellationToken: cancellationToken);
+                if (!test1.Success)
+                    return NatType.UdpBlocked;
+            }
+
+            var test1Ip =
+                   test1.Message.Attributes.Where(a => a.Type == AttributeType.XorMappedAddress).Cast<XorMappedAddressAttribute>().FirstOrDefault()?.IPAddress
+                ?? test1.Message.Attributes.Where(a => a.Type == AttributeType.MappedAddress).Cast<MappedAddressAttribute>().FirstOrDefault()?.IPAddress;
+
+            if (test1Ip == null)
+                return NatType.Unknown;
+
+            // Is test1 the same IP?
+            var ipSame = test1Ip.Equals(test1.LocalEndpoint.Address);
+
+            MessageResponse test2;
+            using (var stunUdpClient = new StunUdpClient(stunHostname, stunPort))
+            {
+                test2 = await stunUdpClient.BindingRequestAsync(
+                    new List<MessageAttribute> {
+                        new ChangeRequestAttribute {
+                            ChangeIP = true,
+                            ChangePort = true
+                        }
+                    },
+                    cancellationToken: cancellationToken);
+            }
+
+            if (ipSame)
+            {
+                if (test2.Success)
+                    return NatType.OpenInternet;
+                else
+                    return NatType.SymmetricUdpFirewall;
+            }
+
+            if (test2.Success)
+                return NatType.FullCone;
+
+            using (var stunUdpClient = new StunUdpClient(stunHostname, stunPort))
+            {
+                var test1b = await stunUdpClient.BindingRequestAsync(cancellationToken: cancellationToken);
+                if (!test1b.Success)
+                    return NatType.Unknown;
+
+                var test1IpB =
+                   test1b.Message.Attributes.Where(a => a.Type == AttributeType.XorMappedAddress).Cast<XorMappedAddressAttribute>().FirstOrDefault()?.IPAddress
+                ?? test1b.Message.Attributes.Where(a => a.Type == AttributeType.MappedAddress).Cast<MappedAddressAttribute>().FirstOrDefault()?.IPAddress;
+
+                if (test1IpB == null)
+                    return NatType.Unknown;
+
+                var ipSameB = test1IpB.Equals(test1b.LocalEndpoint.Address);
+                if (!ipSameB)
+                    return NatType.SymmetricNat;
+            }
+
+            using (var stunUdpClient = new StunUdpClient(stunHostname, stunPort))
+            {
+                var test3 = await stunUdpClient.BindingRequestAsync(
+                                new List<MessageAttribute> {
+                                    new ChangeRequestAttribute {
+                                        ChangeIP = false,
+                                        ChangePort = true
+                                    }
+                                },
+                                cancellationToken: cancellationToken);
+
+                if (test3.Success)
+                    return NatType.Restricted;
+            }
+
+            return NatType.PortRestricted;
+        }
+    }
+}

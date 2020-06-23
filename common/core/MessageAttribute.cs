@@ -6,9 +6,21 @@ namespace stungun.common.core
 {
     public class MessageAttribute
     {
+        private byte[]? _byteArray;
+
         public AttributeType Type { get; protected set; }
         public ushort AttributeLength { get; protected set; }
         public byte[]? Value { get; protected set; }
+
+        public IReadOnlyList<byte> Bytes
+        {
+            get
+            {
+                this._byteArray = ToByteArray();
+                return this._byteArray.ToList().AsReadOnly();
+            }
+            private set => this._byteArray = value.ToArray();
+        }
 
         public static MessageAttribute Parse(byte[] bytes)
         {
@@ -41,9 +53,11 @@ namespace stungun.common.core
 
             var ret = new MessageAttribute
             {
+            
                 Type = (AttributeType)aType,
                 AttributeLength = aLen,
-                Value = aVal
+                Value = aVal,
+                Bytes = bytes
             };
 
             return ret;
@@ -64,6 +78,10 @@ namespace stungun.common.core
                 {
                     switch (nextAttribute.Type)
                     {
+                        case AttributeType.ChangeRequest:
+                            yield return ChangeRequestAttribute.FromGenericAttribute(nextAttribute);
+                            break;
+
                         case AttributeType.MappedAddress:
                             yield return MappedAddressAttribute.FromGenericAttribute(nextAttribute);
                             break;
@@ -90,5 +108,34 @@ namespace stungun.common.core
                 attrOffset += (4 + nextAttribute?.AttributeLength ?? 0);
             } while (attrOffset < bytes.Length);
         }
+
+        public static byte[] ToByteArray(MessageAttribute attribute)
+        {
+            if (attribute == null)
+                throw new ArgumentNullException(nameof(attribute));
+            if (attribute.Value == null || attribute.Value.Length == 0)
+                throw new ArgumentNullException(nameof(attribute.Value));
+            if (attribute.AttributeLength != attribute.Value.Length)
+                throw new ArgumentException($"Attribute {attribute.Type} length {attribute.AttributeLength} did not match attribute value's actual byte array length of {attribute.Value.Length}");
+            if ((attribute.Value.Length + 4) % 4 != 0)
+                throw new ArgumentOutOfRangeException($"Attributes must break on a 32-boundary, but type {attribute.Type} was {attribute.Value} bytes long", nameof(attribute));
+
+            var ret = new byte[4 + attribute.Value.Length];
+            Array.Copy(BitConverter.GetBytes(MessageUtility.SwapBytes((ushort)attribute.Type)), 0, ret, 0, 2);
+            Array.Copy(BitConverter.GetBytes(MessageUtility.SwapBytes((ushort)attribute.Value.Length)), 0, ret, 2, 2);
+            Array.Copy(attribute.Value.ToArray(), 0, ret, 4, attribute.Value.Length);
+            return ret;
+        }
+
+        public void PrintDebug()
+        {
+            Console.WriteLine($"| Type = 0x{BitConverter.GetBytes((ushort)Type).Reverse().Select(b => $"{b:x2}").Aggregate((c, n) => c + n)} {(Enum.GetName(typeof(AttributeType), Type)??"Unknown").PadRight(16, ' ')}| MsgLen = {AttributeLength.ToString().PadRight(21, ' ')}|");
+            Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
+            for (var i = 0; i < AttributeLength / 4; i++)
+            Console.WriteLine($"|                          {Value.Skip(i * 4).Take(4).Select(b => $"{b:x2} ").Reverse().Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
+            Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
+        }
+
+        public byte[] ToByteArray() => ToByteArray(this);
     }
 }

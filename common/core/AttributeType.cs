@@ -7,7 +7,7 @@ namespace stungun.common.core
         Unknown = 0x0000,
         MappedAddress = 0x0001,
         ReservedResponseAddress = 0x0002,
-        ReservedChangeAddress = 0x0003,
+        ChangeRequest= 0x0003,
         ReservedSourceAddress = 0x0004,
         ReservedChangedAddress = 0x0005,
         Username = 0x0006,

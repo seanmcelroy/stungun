@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,11 +9,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using stungun.common.core;
 
-namespace stungun.client.core
+namespace stungun.common.client
 {
     public class StunTcpClient : IStunClient, IDisposable
     {
-        private TcpClient tcpClient;
+        private TcpClient? tcpClient;
         // To detect redundant calls
         private bool _disposed = false;
 
@@ -28,15 +29,23 @@ namespace stungun.client.core
 
         ~StunTcpClient() => Dispose(false);
 
-        public async Task<MessageResponse> BindingRequestAsync(int connectTimeout = 5000, int recvTimeout = 5000, CancellationToken cancellationToken = default(CancellationToken))
+        public async Task<MessageResponse> BindingRequestAsync(
+            IList<MessageAttribute>? attributes = null,
+            int connectTimeout = 5000,
+            int recvTimeout = 5000,
+            CancellationToken cancellationToken = default(CancellationToken),
+            byte[]? customTransactionId = null)
         {
             byte[] responseBytes;
 
-            var message = Message.CreateBindingRequest();
-            message.Header.PrintDebug();
+            var message = Message.CreateBindingRequest(attributes, customTransactionId);
+            message.PrintDebug();
             var messageBytes = message.ToByteArray();
-            await Console.Error.WriteAsync("SENDING: ");
+            await Console.Error.WriteAsync("SENDING:  ");
             await Console.Error.WriteLineAsync(messageBytes.Select(b => $"{b:x2}").Aggregate((c, n) => c + n));
+
+            if (tcpClient == null)
+                throw new ObjectDisposedException(nameof(tcpClient));
 
             if (!tcpClient.ConnectAsync(this.Hostname, this.Port).Wait(connectTimeout, cancellationToken))
                 return new MessageResponse
@@ -63,7 +72,19 @@ namespace stungun.client.core
                 ushort bytesRead = 0, totalBytesRead = 0, messageLength = 0;
                 do
                 {
-                    bytesRead = Convert.ToUInt16(await ns.ReadAsync(readBuffer, 0, readBuffer.Length, cancellationToken));
+                    var tcpReadTask = ns.ReadAsync(readBuffer, 0, readBuffer.Length, cancellationToken);
+                    if (await Task.WhenAny(tcpReadTask, Task.Delay(recvTimeout)) != tcpReadTask)
+                    {
+                        return new MessageResponse
+                        {
+                            LocalEndpoint = localEndpoint,
+                            RemoteEndpoint = remoteEndpoint,
+                            Success = false,
+                            ErrorMessage = $"Timeout receiving TCP response from {this.Hostname}:{this.Port} after {sw.ElapsedMilliseconds}ms"
+                        };
+                    }
+
+                    bytesRead = Convert.ToUInt16(await tcpReadTask);
                     totalBytesRead += bytesRead;
                     if (bytesRead > 0)
                     {
@@ -74,6 +95,25 @@ namespace stungun.client.core
 
                     if (totalBytesRead >= messageLength + 20)
                         break;
+
+                    if (cancellationToken.IsCancellationRequested)
+                        return new MessageResponse
+                        {
+                            LocalEndpoint = localEndpoint,
+                            RemoteEndpoint = remoteEndpoint,
+                            Success = false,
+                            ErrorMessage = $"Receive cancelled"
+                        };
+
+                    if (sw.ElapsedMilliseconds >= recvTimeout)
+                        return new MessageResponse
+                        {
+                            LocalEndpoint = localEndpoint,
+                            RemoteEndpoint = remoteEndpoint,
+                            Success = false,
+                            ErrorMessage = $"Timeout receiving TCP response from {this.Hostname}:{this.Port} after {sw.ElapsedMilliseconds}ms"
+                        };
+
                 } while ((bytesRead > 0 || sw.ElapsedMilliseconds < recvTimeout) && !cancellationToken.IsCancellationRequested);
                 await ms.FlushAsync(cancellationToken);
                 responseBytes = ms.ToArray();
@@ -86,6 +126,8 @@ namespace stungun.client.core
 
 
             var msg = Message.Parse(responseBytes);
+            msg.PrintDebug();
+
             return new MessageResponse
             {
                 LocalEndpoint = localEndpoint,
@@ -111,6 +153,7 @@ namespace stungun.client.core
             if (disposing)
             {
                 tcpClient?.Dispose();
+                tcpClient = null;
             }
 
             // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.

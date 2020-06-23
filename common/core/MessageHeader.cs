@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 namespace stungun.common.core
 {
@@ -37,13 +38,13 @@ namespace stungun.common.core
             Console.WriteLine($" 0                   1                   2                   3   ");
             Console.WriteLine($" 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 ");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
-            Console.WriteLine($"|0 0|     STUN Message Type     | MsgLen = {MessageLength.ToString().PadRight(20, ' ')} |");
+            Console.WriteLine($"|0 0| STUN Message Type = 0x{BitConverter.GetBytes((ushort)Type).Reverse().Select(b => $"{b:x2}").Aggregate((c, n) => c + n).PadRight(4, ' ')}| MsgLen = {MessageLength.ToString().PadRight(21, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
-            Console.WriteLine($"|                         Magic Cookie                          |");
+            Console.WriteLine($"|                  Magic Cookie = 0x{BitConverter.GetBytes(MagicCookie).Reverse().Select(b => $"{b:x2}").Aggregate((c, n) => c + n).PadRight(28, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
-            Console.WriteLine($"|                                                               |");
-            Console.WriteLine($"|                     Transaction ID (96 bits)                  |");
-            Console.WriteLine($"|                                                               |");
+            Console.WriteLine($"| Transaction ID (96 bits) {TransactionId.Take(4).Select(b => $"{b:x2} ").Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
+            Console.WriteLine($"|                          {TransactionId.Skip(4).Take(4).Select(b => $"{b:x2} ").Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
+            Console.WriteLine($"|                          {TransactionId.Skip(8).Take(4).Select(b => $"{b:x2} ").Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
         }
     }

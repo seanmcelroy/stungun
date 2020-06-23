@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
-using stungun.client.core;
+using stungun.common.client;
 using stungun.common.core;
 
 namespace stungun.client
@@ -9,7 +9,7 @@ namespace stungun.client
     {
         public static async Task Main(string[] args)
         {
-            Console.WriteLine("stun-client 1.0");
+            await Console.Out.WriteLineAsync("stun-client 1.0");
 
             if (args == null
                 || args.Length < 1
@@ -47,15 +47,20 @@ namespace stungun.client
                     await Console.Out.WriteLineAsync($"reply type {(ushort)msg.Header.Type} {Enum.GetName(typeof(MessageType), msg!.Header.Type)}");
                     await Console.Out.WriteLineAsync($" length: {msg!.Header.MessageLength + 20}");
                     await Console.Out.WriteLineAsync($" length of attributes: {msg!.Header.MessageLength}");
-                    foreach (var attr in msg!.Attributes)
-                    {
-                        await Console.Out.WriteLineAsync($" attribute type 0x{(ushort)attr.Type:x2} {Enum.GetName(typeof(AttributeType), attr.Type)}, value length: {attr.AttributeLength}");
-                        await Console.Out.WriteLineAsync($"  {attr.ToString()}");
-                    }
+                    if (msg.Attributes != null)
+                        foreach (var attr in msg.Attributes)
+                        {
+                            await Console.Out.WriteLineAsync($" attribute type 0x{(ushort)attr.Type:x2} {Enum.GetName(typeof(AttributeType), attr.Type)}, value length: {attr.AttributeLength}");
+                            await Console.Out.WriteLineAsync($"  {attr.ToString()}");
+                        }
                 }
                 else
                     await Console.Error.WriteLineAsync(resp.ErrorMessage);
             }
+
+            var disco = new DiscoveryClient();
+            var discoResult = await disco.DiscoverAsync();
+            await Console.Out.WriteLineAsync($"NAT Discovery: {discoResult}");
         }
     }
 }

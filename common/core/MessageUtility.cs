@@ -6,6 +6,14 @@ namespace stungun.common.core
 {
     public static class MessageUtility
     {
+
+        public static ushort SwapBytes(this ushort x) => (ushort)((ushort)((x & 0xff) << 8) | ((x >> 8) & 0xff));
+
+        public static uint SwapBytes(this uint x) => ((x & 0x000000ff) << 24) +
+                   ((x & 0x0000ff00) << 8) +
+                   ((x & 0x00ff0000) >> 8) +
+                   ((x & 0xff000000) >> 24);
+
         public static byte[] ToByteArray(this MessageHeader header)
         {
             var ret = new byte[20];
@@ -16,30 +24,13 @@ namespace stungun.common.core
             return ret;
         }
 
-        public static byte[] ToByteArray(this MessageAttribute attribute)
-        {
-            if (attribute == null)
-                throw new ArgumentNullException(nameof(attribute));
-            if (attribute.Value == null || attribute.Value.Length == 0)
-                throw new ArgumentNullException(nameof(attribute.Value));
-            if (attribute.AttributeLength != attribute.Value.Length)
-                throw new ArgumentException($"Attribute {attribute.Type} length {attribute.AttributeLength} did not match attribute value's actual byte array length of {attribute.Value.Length}");
-            if ((attribute.Value.Length + 4) % 4 != 0)
-                throw new ArgumentOutOfRangeException($"Attributes must break on a 32-boundary, but type {attribute.Type} was {attribute.Value} bytes long", nameof(attribute));
-
-            var ret = new byte[4 + attribute.Value.Length];
-            Array.Copy(BitConverter.GetBytes((ushort)attribute.Type), 0, ret, 0, 2);
-            Array.Copy(BitConverter.GetBytes((ushort)attribute.Value.Length), 0, ret, 2, 2);
-            Array.Copy(attribute.Value, 0, ret, 4, attribute.Value.Length);
-            return ret;
-        }
-
         public static byte[] ToByteArray(this Message message)
         {
             var attrBytes = new List<byte[]>();
             if (message.Attributes != null)
                 foreach (var attr in message.Attributes)
-                    attrBytes.Add(attr.ToByteArray());
+                    if (attr != null)
+                        attrBytes.Add(attr.ToByteArray());
 
             var ret = new byte[20 + attrBytes.Sum(ab => ab.Length)];
 

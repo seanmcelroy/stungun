@@ -1,10 +1,22 @@
-stun-client
+stungun
 ======
 
-A .NET Core implementation of the STUN protocol that can be used to create an
-STUN client, based on IETF RFC 5389.  This repository features a classlib which
-can be referenced, and a small example console application that demonstrates
-its ability to connect to a STUN server over either UDP or TCP, send a binding
-request, and parse a response.
+A .NET Core implementation of the STUN protocol based on IETF RFC 5389.
+
+```./client``` contains a sample STUN client that can connect to a STUN server
+over either UDP or TCP.  It is a simple wrapper around the classlib components.
+This is a console-based application.
+
+```./common``` is the classlib that contains the core message and attribute
+components, as well as the client and server protocol implementations.  If you
+want to implement your own STUN agent, this project contains the classes you
+will want.
+
+```./common.tests``` is a set of unit tests that validate the functionality
+in the common classlib.
+
+```./server``` contains a very simple UDP STUN server.  It will respond to STUN
+requests with the MappedAttribute and XorMappedAttribute attributes.  Building
+the project and running it with ```dotnet server.dll``` will start the server.
 
 Pull requests or questions are welcome!

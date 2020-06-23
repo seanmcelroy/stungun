@@ -11,22 +11,36 @@ namespace stungun.common.core
 
         public MessageHeader Header;
 
-        public List<MessageAttribute>? Attributes;
+        public IReadOnlyList<MessageAttribute>? Attributes;
 
-        public static Message CreateBindingRequest()
+        public static Message CreateBindingRequest(IList<MessageAttribute>? attributes, byte[]? customTransactionId)
         {
-            var transactionId = new byte[12];
-            RNG.GetBytes(transactionId);
+            byte[] transactionId;
+            if (customTransactionId == null)
+            {
+                transactionId = new byte[12];
+                RNG.GetBytes(transactionId);
+            }
+            else
+            {
+                if (customTransactionId.Length != 12)
+                    throw new ArgumentOutOfRangeException(nameof(customTransactionId), customTransactionId, "TransactionID must be 12 bytes");
+                transactionId = customTransactionId;
+            }
+
+            var attributeList = attributes?.ToList().AsReadOnly();
+            var messageLength = attributeList?.Sum(a => a.Bytes.Count) ?? 0;
 
             return new Message
             {
                 Header = new MessageHeader
                 {
                     Type = MessageType.BindingRequest,
-                    MessageLength = 0,
+                    MessageLength = (ushort)messageLength,
                     MagicCookie = 0x2112A442,
                     TransactionId = transactionId
-                }
+                },
+                Attributes = attributeList
             };
         }
 
@@ -39,12 +53,21 @@ namespace stungun.common.core
 
             var header = MessageHeader.Parse(bytes.Slice(0, 20));
 
-            var ret = new Message {
+            var ret = new Message
+            {
                 Header = header,
                 Attributes = bytes.Length > 20 ? MessageAttribute.ParseList(bytes.Slice(20).ToArray(), header.TransactionId).ToList() : null
             };
 
             return ret;
+        }
+
+        public void PrintDebug()
+        {
+            this.Header.PrintDebug();
+            if (this.Attributes != null)
+                foreach (var attr in this.Attributes)
+                    attr.PrintDebug();
         }
 
         public override string ToString() => $"{Enum.GetName(typeof(MessageType), Header.Type)}";
