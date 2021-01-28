@@ -53,7 +53,7 @@ namespace stungun.common.core
 
             var ret = new MessageAttribute
             {
-            
+
                 Type = (AttributeType)aType,
                 AttributeLength = aLen,
                 Value = aVal,
@@ -129,10 +129,10 @@ namespace stungun.common.core
 
         public void PrintDebug()
         {
-            Console.WriteLine($"| Type = 0x{BitConverter.GetBytes((ushort)Type).Reverse().Select(b => $"{b:x2}").Aggregate((c, n) => c + n)} {(Enum.GetName(typeof(AttributeType), Type)??"Unknown").PadRight(16, ' ')}| MsgLen = {AttributeLength.ToString().PadRight(21, ' ')}|");
+            Console.WriteLine($"| Type = 0x{BitConverter.GetBytes((ushort)Type).Reverse().Select(b => $"{b:x2}").Aggregate((c, n) => c + n)} {(Enum.GetName(typeof(AttributeType), Type) ?? "Unknown").PadRight(16, ' ')}| MsgLen = {AttributeLength.ToString().PadRight(21, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
             for (var i = 0; i < AttributeLength / 4; i++)
-            Console.WriteLine($"|                          {Value.Skip(i * 4).Take(4).Select(b => $"{b:x2} ").Reverse().Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
+                Console.WriteLine($"|                          {Value.Skip(i * 4).Take(4).Select(b => $"{b:x2} ").Reverse().Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
         }
 

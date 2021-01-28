@@ -33,6 +33,9 @@ namespace stungun.common.core
         {
             get
             {
+                if (this.Value == null)
+                    return 0;
+
                 var xPort = BitConverter.ToUInt16(new byte[] { this.Value[3], this.Value[2] });
                 var port = (ushort)(xPort ^ (ushort)0x2112);
                 return port;
@@ -50,6 +53,9 @@ namespace stungun.common.core
         {
             get
             {
+                if (this.Value == null)
+                    return IPAddress.None;
+
                 switch (this.AddressFamily)
                 {
                     case System.Net.Sockets.AddressFamily.InterNetwork:

@@ -48,7 +48,7 @@ namespace stungun.common.core
 
         public virtual ushort Port
         {
-            get => BitConverter.ToUInt16(new byte[] { this.Value[3], this.Value[2] });
+            get => this.Value == null ? (ushort)0 : BitConverter.ToUInt16(new byte[] { this.Value[3], this.Value[2] });
             set
             {
                 if (this.Value == null)

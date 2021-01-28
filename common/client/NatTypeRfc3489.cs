@@ -1,6 +1,6 @@
 namespace stungun.common.client
 {
-    public enum NatType
+    public enum NatTypeRfc3489
     {
         Unknown = 0,
         UdpBlocked = 1,
@@ -8,7 +8,7 @@ namespace stungun.common.client
         OpenInternet = 3,
         FullCone = 4,
         SymmetricNat = 5,
-        Restricted = 6,
-        PortRestricted = 7
+        RestrictedCone = 6,
+        PortRestrictedCone = 7
     }
 }

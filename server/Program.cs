@@ -1,4 +1,7 @@
 ﻿using System;
+using System.Linq;
+using System.Net;
+using System.Threading;
 using System.Threading.Tasks;
 
 using stungun.common.server;
@@ -11,14 +14,16 @@ namespace server
         {
             await Console.Out.WriteLineAsync("stun-server 1.0");
 
-            var stunUdpServer = new StunUdpServer();
+            var addresses = Dns.GetHostEntry(Dns.GetHostName()).AddressList;
+            foreach (var address in addresses.Where(a => !a.IsIPv6LinkLocal))
+                await Console.Out.WriteLineAsync($"Discovered IP {address}");
 
-            stunUdpServer.Start();
-            do
-            {
-
-
-            } while (true);
+            var endpoints = addresses
+                .Where(a => !a.IsIPv6LinkLocal)
+                .Select(a => new IPEndPoint(a, 3478)).ToArray();
+            var stunUdpServer = new StunUdpServer(endpoints);
+            stunUdpServer.Start(3478);
+            Console.ReadLine();
         }
     }
 }

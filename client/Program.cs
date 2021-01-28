@@ -14,6 +14,7 @@ namespace stungun.client
             if (args == null
                 || args.Length < 1
                 || (args.Length == 1 && (string.Compare(args[0], "?", StringComparison.InvariantCultureIgnoreCase) == 0))
+                || (args.Length == 1 && (string.Compare(args[0], "-?", StringComparison.InvariantCultureIgnoreCase) == 0))
                 || (args.Length == 1 && (string.Compare(args[0], "/?", StringComparison.InvariantCultureIgnoreCase) == 0))
                 || (args.Length == 1 && (string.Compare(args[0], "/help", StringComparison.InvariantCultureIgnoreCase) == 0))
                 || (args.Length == 1 && (string.Compare(args[0], "--help", StringComparison.InvariantCultureIgnoreCase) == 0))
@@ -59,8 +60,8 @@ namespace stungun.client
             }
 
             var disco = new DiscoveryClient();
-            var discoResult = await disco.DiscoverAsync();
-            await Console.Out.WriteLineAsync($"NAT Discovery: {discoResult}");
+            var discoResult = await disco.DiscoverUdpRfc3489Async();
+            await Console.Out.WriteLineAsync($"NAT Discovery via UDP per RFC 3489: {discoResult}");
         }
     }
 }
