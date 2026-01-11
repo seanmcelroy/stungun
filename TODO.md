@@ -8,15 +8,13 @@ This document outlines detailed recommendations for enhancing the STUN/TURN impl
 
 1. [Complete STUN Authentication (RFC 5389)](#1-complete-stun-authentication-rfc-5389)
 2. [TCP Server Implementation](#2-tcp-server-implementation)
-3. [Error Response Handling](#3-error-response-handling)
-4. [RFC 5780 NAT Behavior Discovery](#4-rfc-5780-nat-behavior-discovery)
-5. [TURN Support (RFC 5766)](#5-turn-support-rfc-5766)
-6. [TLS/DTLS Transport](#6-tlsdtls-transport)
-7. [ICE Support (RFC 8445)](#7-ice-support-rfc-8445)
-8. [Test Coverage](#8-test-coverage)
-9. [Configuration & Observability](#9-configuration--observability)
-10. [IPv6 Improvements](#10-ipv6-improvements)
-11. [Alternate Server Support](#11-alternate-server-support)
+3. [RFC 5780 NAT Behavior Discovery](#3-rfc-5780-nat-behavior-discovery)
+4. [TURN Support (RFC 5766)](#4-turn-support-rfc-5766)
+5. [TLS/DTLS Transport](#5-tlsdtls-transport)
+6. [ICE Support (RFC 8445)](#6-ice-support-rfc-8445)
+7. [Configuration & Observability](#7-configuration--observability)
+8. [IPv6 Improvements](#8-ipv6-improvements)
+9. [Alternate Server Support](#9-alternate-server-support)
 
 ---
 
@@ -229,116 +227,7 @@ await ns.WriteAsync(messageBytes, 0, messageBytes.Length, cancellationToken);
 
 ---
 
-## 3. Error Response Handling
-
-### Background
-
-The current server only handles successful binding requests. RFC 5389 defines several error codes that should be returned in error responses. The `BindingError` message type (0x0111) exists but is not generated.
-
-### Implementation Tasks
-
-#### 3.1 Create ErrorCodeAttribute
-
-```
-Location: common/core/ErrorCodeAttribute.cs
-```
-
-```csharp
-public class ErrorCodeAttribute : MessageAttribute
-{
-    public ushort ErrorClass { get; set; }    // 3 bits (values 3-6)
-    public byte ErrorNumber { get; set; }      // 8 bits (0-99)
-    public string ReasonPhrase { get; set; }   // UTF-8, max 127 chars
-
-    public int ErrorCode => (ErrorClass * 100) + ErrorNumber;
-
-    // Wire format: 2 reserved bytes, 1 byte (class in bits 0-2), 1 byte (number), then reason phrase
-}
-```
-
-#### 3.2 Define Standard Error Codes
-
-```csharp
-public static class StunErrorCodes
-{
-    public const int TryAlternate = 300;      // Client should use alternate server
-    public const int BadRequest = 400;         // Malformed request
-    public const int Unauthorized = 401;       // Missing/invalid credentials
-    public const int UnknownAttribute = 420;   // Unknown comprehension-required attribute
-    public const int StaleNonce = 438;         // Nonce expired, retry with new nonce
-    public const int ServerError = 500;        // Server internal error
-}
-```
-
-#### 3.3 Create UnknownAttributesAttribute
-
-```
-Location: common/core/UnknownAttributesAttribute.cs
-```
-
-When a comprehension-required attribute is not understood, include this attribute listing the unknown attribute types:
-
-```csharp
-public class UnknownAttributesAttribute : MessageAttribute
-{
-    public List<ushort> UnknownTypes { get; set; }
-    // Wire format: List of 16-bit attribute types, padded to 4-byte boundary
-}
-```
-
-#### 3.4 Add Error Response Generation to Server
-
-Update `StunUdpServer.cs` ProcessingLoop:
-
-```csharp
-private static Message CreateErrorResponse(Message request, int errorCode, string reason)
-{
-    var errorAttr = new ErrorCodeAttribute
-    {
-        ErrorClass = (ushort)(errorCode / 100),
-        ErrorNumber = (byte)(errorCode % 100),
-        ReasonPhrase = reason
-    };
-
-    return new Message
-    {
-        Header = new MessageHeader
-        {
-            Type = MessageType.BindingError,
-            MagicCookie = request.Header.MagicCookie,
-            TransactionId = request.Header.TransactionId,
-            // ... calculate length
-        },
-        Attributes = new List<MessageAttribute> { errorAttr }
-    };
-}
-```
-
-#### 3.5 Update Message Parsing for Comprehension-Required Attributes
-
-Current behavior in `MessageAttribute.cs` line 51 throws for unknown comprehension-required attributes. Instead:
-- Collect unknown comprehension-required attribute types
-- Return them to the caller so an error response can be generated
-- Only throw if we're a client receiving an unexpected attribute
-
-### Affected Files
-
-| File | Changes |
-|------|---------|
-| `common/core/ErrorCodeAttribute.cs` | New file |
-| `common/core/UnknownAttributesAttribute.cs` | New file |
-| `common/core/StunErrorCodes.cs` | New file |
-| `common/core/MessageAttribute.cs` | Improve unknown attribute handling |
-| `common/server/StunUdpServer.cs` | Add error response generation |
-
-### References
-
-- RFC 5389 Section 15.6: ERROR-CODE
-- RFC 5389 Section 15.9: UNKNOWN-ATTRIBUTES
-
----
-
-## 4. RFC 5780 NAT Behavior Discovery
+## 3. RFC 5780 NAT Behavior Discovery
 
 ### Background
 
@@ -346,13 +235,25 @@ RFC 5780 supersedes RFC 3489 for NAT behavior discovery. It separately character
 - **Mapping behavior**: How the NAT assigns external addresses (Endpoint-Independent, Address-Dependent, Address-and-Port-Dependent)
 - **Filtering behavior**: What packets the NAT allows through (Endpoint-Independent, Address-Dependent, Address-and-Port-Dependent)
 
-The current `DiscoveryClient.cs` has a stubbed `DiscoverUdpRfc5780Async()` method that returns Unknown.
+### Current Implementation Status
 
-### Implementation Tasks
+**Client-side (Complete):**
+- ✅ `DiscoveryClient.DiscoverUdpRfc5780Async()` - Full implementation
+- ✅ `ChangeRequestAttribute` - Fixed wire format, proper bit manipulation
+- ✅ Mapping behavior detection via alternate server addresses
+- ✅ Filtering behavior detection via CHANGE-REQUEST attribute
 
-#### 4.1 Implement Mapping Behavior Detection
+**Server-side (Partial):**
+- ✅ `RESPONSE-ORIGIN` attribute in responses
+- ✅ `OTHER-ADDRESS` attribute in responses (when configured)
+- ✅ `StunServerConfiguration` for alternate endpoint configuration
+- ❌ CHANGE-REQUEST handling (server ignores the attribute)
 
-The algorithm requires communicating with the same server from different local endpoints:
+### Completed Implementation Tasks
+
+#### 3.1 Implement Mapping Behavior Detection ✅
+
+The algorithm communicates with the same server from different local endpoints:
 
 ```csharp
 public async Task<NatMappingTypeRfc5780> DetectMappingBehaviorAsync()
@@ -369,7 +270,7 @@ public async Task<NatMappingTypeRfc5780> DetectMappingBehaviorAsync()
 }
 ```
 
-#### 4.2 Implement Filtering Behavior Detection
+#### 3.2 Implement Filtering Behavior Detection ✅
 
 Uses CHANGE-REQUEST attribute with RESPONSE-ORIGIN:
 
@@ -385,17 +286,18 @@ public async Task<NatFilteringTypeRfc5780> DetectFilteringBehaviorAsync()
 }
 ```
 
-#### 4.3 Update ChangeRequestAttribute
+#### 3.3 Update ChangeRequestAttribute ✅
 
-The current `ChangeRequestAttribute.cs` may need updates for RFC 5780 compliance. Verify the wire format matches:
-- Bit 0x04: Change IP
-- Bit 0x02: Change Port
+Fixed the wire format to properly handle:
+- Bit 0x04: Change IP flag
+- Bit 0x02: Change Port flag
+- Proper getter/setter with flag clearing support
 
-#### 4.4 Handle RESPONSE-ORIGIN and OTHER-ADDRESS
+#### 3.4 Handle RESPONSE-ORIGIN and OTHER-ADDRESS ✅
 
-These attributes are already defined in `AttributeType.cs` and parsed as `AddressAttribute`. Ensure the server includes them when the client can support RFC 5780 tests.
+Server now includes these attributes in responses when configured via `StunServerConfiguration`.
 
-#### 4.5 Complete the DiscoverUdpRfc5780Async Implementation
+#### 3.5 Complete the DiscoverUdpRfc5780Async Implementation ✅
 
 ```csharp
 public async Task<(NatMappingTypeRfc5780 mapping, NatFilteringTypeRfc5780 filtering)> DiscoverUdpRfc5780Async(
@@ -407,23 +309,265 @@ public async Task<(NatMappingTypeRfc5780 mapping, NatFilteringTypeRfc5780 filter
 }
 ```
 
-### Affected Files
+---
+
+### Future Implementation Tasks
+
+#### 3.6 Server-Side CHANGE-REQUEST Handling
+
+**Status:** Not Implemented
+
+For the server to fully support RFC 5780 NAT behavior discovery, it must handle the CHANGE-REQUEST attribute and respond from alternate addresses. This is a complex feature requiring multi-homed server infrastructure.
+
+##### Prerequisites
+
+1. **Multiple Network Interfaces or IP Addresses**: The server must have access to at least two distinct IP addresses to support "Change IP" requests.
+
+2. **Multiple Ports**: The server must be able to send responses from alternate ports to support "Change Port" requests.
+
+3. **Network Infrastructure**: Proper routing and firewall rules to allow outbound packets from alternate addresses.
+
+##### Implementation Design
+
+```
+Location: common/server/StunUdpServer.cs (modifications)
+          common/server/MultiHomedStunServer.cs (new file)
+```
+
+**Option A: Single Server with Multiple Sockets**
+
+```csharp
+public class MultiHomedStunServer : IDisposable
+{
+    // Primary socket (e.g., 192.168.1.1:3478)
+    private UdpClient _primarySocket;
+
+    // Alternate IP socket (e.g., 192.168.1.2:3478)
+    private UdpClient _alternateIpSocket;
+
+    // Alternate port socket (e.g., 192.168.1.1:3479)
+    private UdpClient _alternatePortSocket;
+
+    // Alternate IP and port socket (e.g., 192.168.1.2:3479)
+    private UdpClient _alternateIpPortSocket;
+
+    public MultiHomedStunServerConfiguration Configuration { get; }
+
+    public void Start(CancellationToken cancellationToken = default)
+    {
+        // Bind all four sockets
+        // Start receive loops on all sockets
+        // Route responses based on CHANGE-REQUEST flags
+    }
+}
+```
+
+**Option B: Coordinated Server Instances**
+
+```csharp
+public class StunServerCluster
+{
+    private readonly List<StunUdpServer> _servers;
+    private readonly IServerCoordinator _coordinator;
+
+    // Each server instance handles requests and can forward
+    // response duties to sibling servers via IPC/messaging
+}
+```
+
+##### CHANGE-REQUEST Processing Logic
+
+```csharp
+private async Task HandleBindingRequestWithChangeRequest(
+    UdpReceiveResult udpReceive,
+    Message req,
+    ChangeRequestAttribute changeRequest)
+{
+    // Determine which socket to use for response
+    UdpClient responseSocket;
+    IPEndPoint responseSource;
+
+    if (changeRequest.ChangeIP && changeRequest.ChangePort)
+    {
+        // Respond from alternate IP AND alternate port
+        responseSocket = _alternateIpPortSocket;
+        responseSource = _config.AlternateIpPortEndpoint;
+    }
+    else if (changeRequest.ChangeIP)
+    {
+        // Respond from alternate IP, same port
+        responseSocket = _alternateIpSocket;
+        responseSource = _config.AlternateIpEndpoint;
+    }
+    else if (changeRequest.ChangePort)
+    {
+        // Respond from same IP, alternate port
+        responseSocket = _alternatePortSocket;
+        responseSource = _config.AlternatePortEndpoint;
+    }
+    else
+    {
+        // Normal response from primary socket
+        responseSocket = _primarySocket;
+        responseSource = _config.PrimaryEndpoint;
+    }
+
+    // Build response with correct RESPONSE-ORIGIN
+    var response = BuildBindingResponse(req, udpReceive.RemoteEndPoint, responseSource);
+
+    // Send from the selected socket
+    var responseBytes = response.ToByteArray();
+    await responseSocket.SendAsync(responseBytes, responseBytes.Length, udpReceive.RemoteEndPoint);
+}
+```
+
+##### Configuration Model
+
+```csharp
+public class MultiHomedStunServerConfiguration
+{
+    /// <summary>
+    /// Primary endpoint (IP1:Port1) - receives all requests.
+    /// </summary>
+    public IPEndPoint PrimaryEndpoint { get; set; }
+
+    /// <summary>
+    /// Alternate IP endpoint (IP2:Port1) - for ChangeIP responses.
+    /// Must be a different IP address than PrimaryEndpoint.
+    /// </summary>
+    public IPEndPoint? AlternateIpEndpoint { get; set; }
+
+    /// <summary>
+    /// Alternate port endpoint (IP1:Port2) - for ChangePort responses.
+    /// Must be a different port than PrimaryEndpoint.
+    /// </summary>
+    public IPEndPoint? AlternatePortEndpoint { get; set; }
+
+    /// <summary>
+    /// Alternate IP and port endpoint (IP2:Port2) - for ChangeIP+ChangePort responses.
+    /// </summary>
+    public IPEndPoint? AlternateIpPortEndpoint { get; set; }
+
+    /// <summary>
+    /// Whether to fail requests with CHANGE-REQUEST when alternate endpoints
+    /// are not configured. If false, the request is processed normally
+    /// (response from primary). If true, returns an error response.
+    /// </summary>
+    public bool StrictChangeRequestHandling { get; set; } = false;
+}
+```
+
+##### Parsing CHANGE-REQUEST in Server
+
+Update `HandleBindingRequest` to detect and process the attribute:
+
+```csharp
+private static async Task HandleBindingRequest(
+    UdpClient udpServer,
+    UdpReceiveResult udpReceive,
+    Message req,
+    MultiHomedStunServerConfiguration config)
+{
+    // Extract CHANGE-REQUEST if present
+    var changeRequest = req.Attributes?
+        .OfType<ChangeRequestAttribute>()
+        .FirstOrDefault();
+
+    if (changeRequest != null && (changeRequest.ChangeIP || changeRequest.ChangePort))
+    {
+        // Validate we have the required alternate endpoints
+        if (changeRequest.ChangeIP && config.AlternateIpEndpoint == null)
+        {
+            if (config.StrictChangeRequestHandling)
+            {
+                await SendErrorResponse(..., StunErrorCodes.ServerError,
+                    "Server does not support Change IP");
+                return;
+            }
+            // Fall through to normal handling
+        }
+
+        // ... similar validation for ChangePort
+
+        await HandleBindingRequestWithChangeRequest(udpReceive, req, changeRequest, config);
+        return;
+    }
+
+    // Normal binding request handling
+    await HandleNormalBindingRequest(udpServer, udpReceive, req, config);
+}
+```
+
+##### Deployment Considerations
+
+1. **Cloud Deployments**:
+   - AWS: Use Elastic IPs or multiple ENIs attached to the instance
+   - Azure: Multiple NICs or IP configurations
+   - GCP: Multiple network interfaces or alias IPs
+
+2. **Docker/Kubernetes**:
+   - Host networking mode required for multiple IPs
+   - Or use macvlan/ipvlan network drivers
+   - Service mesh considerations for multi-IP pods
+
+3. **Bare Metal**:
+   - Multiple physical NICs or IP aliases
+   - Proper routing table configuration
+   - Source-based routing may be required
+
+4. **Testing**:
+   - Use loopback aliases (127.0.0.2, 127.0.0.3) for local testing
+   - Docker compose with multiple network attachments
+   - Integration tests with actual network configuration
+
+##### Example Deployment Configuration
+
+```json
+{
+  "stunServer": {
+    "primaryEndpoint": "192.168.1.10:3478",
+    "alternateIpEndpoint": "192.168.1.11:3478",
+    "alternatePortEndpoint": "192.168.1.10:3479",
+    "alternateIpPortEndpoint": "192.168.1.11:3479",
+    "strictChangeRequestHandling": false
+  }
+}
+```
+
+##### Affected Files (Future)
 
 | File | Changes |
 |------|---------|
-| `common/client/DiscoveryClient.cs` | Complete RFC 5780 implementation |
-| `common/client/NatMappingTypeRfc5780.cs` | Already exists, verify enum values |
-| `common/client/NatFilteringTypeRfc5780.cs` | Already exists, verify enum values |
-| `common/core/ChangeRequestAttribute.cs` | Verify wire format |
-| `common/server/StunUdpServer.cs` | Add RESPONSE-ORIGIN, OTHER-ADDRESS to responses |
+| `common/server/MultiHomedStunServer.cs` | New file - multi-socket server implementation |
+| `common/server/MultiHomedStunServerConfiguration.cs` | New file - configuration model |
+| `common/server/StunUdpServer.cs` | Add CHANGE-REQUEST attribute parsing |
+| `common/core/MessageAttribute.cs` | Ensure ChangeRequestAttribute is parsed in server context |
+| `server/Program.cs` | Update to support multi-homed configuration |
+| `server/appsettings.json` | Add alternate endpoint configuration |
+
+---
+
+### Completed Affected Files
+
+| File | Status | Changes |
+|------|--------|---------|
+| `common/client/DiscoveryClient.cs` | ✅ Complete | Full RFC 5780 client implementation |
+| `common/client/NatMappingTypeRfc5780.cs` | ✅ Complete | Enum values verified |
+| `common/client/NatFilteringTypeRfc5780.cs` | ✅ Complete | Enum values verified |
+| `common/core/ChangeRequestAttribute.cs` | ✅ Complete | Fixed wire format and bit manipulation |
+| `common/core/AddressAttribute.cs` | ✅ Complete | Added SetType() for RESPONSE-ORIGIN/OTHER-ADDRESS |
+| `common/server/StunUdpServer.cs` | ✅ Partial | RESPONSE-ORIGIN, OTHER-ADDRESS support; CHANGE-REQUEST handling pending |
+| `common.tests/Rfc5780Tests.cs` | ✅ Complete | Unit tests for RFC 5780 functionality |
 
 ### References
 
 - RFC 5780: NAT Behavior Discovery Using Session Traversal Utilities for NAT (STUN)
+- RFC 5780 Section 4.2: Determining NAT Mapping Behavior
+- RFC 5780 Section 4.3: Determining NAT Filtering Behavior
 
 ---
 
-## 5. TURN Support (RFC 5766)
+## 4. TURN Support (RFC 5766)
 
 ### Background
 
@@ -431,7 +575,7 @@ TURN (Traversal Using Relays around NAT) extends STUN to provide relay functiona
 
 ### Implementation Tasks
 
-#### 5.1 Add TURN Message Types
+#### 4.1 Add TURN Message Types
 
 Update `MessageType.cs`:
 
@@ -462,7 +606,7 @@ public enum MessageType : ushort
 }
 ```
 
-#### 5.2 Add TURN Attributes
+#### 4.2 Add TURN Attributes
 
 New attribute types for `AttributeType.cs`:
 
@@ -493,7 +637,7 @@ common/core/turn/EvenPortAttribute.cs
 common/core/turn/ReservationTokenAttribute.cs
 ```
 
-#### 5.3 Create TURN Server
+#### 4.3 Create TURN Server
 
 ```
 Location: common/server/TurnServer.cs
@@ -536,7 +680,7 @@ public class Allocation
 }
 ```
 
-#### 5.4 Create TURN Client
+#### 4.4 Create TURN Client
 
 ```
 Location: common/client/TurnClient.cs
@@ -554,14 +698,14 @@ public class TurnClient : IDisposable
 }
 ```
 
-#### 5.5 Implement Allocation Lifecycle
+#### 4.5 Implement Allocation Lifecycle
 
 - Default lifetime: 600 seconds (10 minutes)
 - Maximum lifetime: 3600 seconds (1 hour)
 - Client must refresh before expiration
 - Server garbage collects expired allocations
 
-#### 5.6 Implement Channel Data Messages
+#### 4.6 Implement Channel Data Messages
 
 For efficiency, TURN supports channel data messages that bypass STUN framing:
 
@@ -599,7 +743,7 @@ Channel numbers are in range 0x4000-0x7FFE.
 
 ---
 
-## 6. TLS/DTLS Transport
+## 5. TLS/DTLS Transport
 
 ### Background
 
@@ -611,7 +755,7 @@ WebRTC mandates DTLS for data channels and media.
 
 ### Implementation Tasks
 
-#### 6.1 Create StunTlsClient
+#### 5.1 Create StunTlsClient
 
 ```
 Location: common/client/StunTlsClient.cs
@@ -647,7 +791,7 @@ _sslStream = new SslStream(
 await _sslStream.AuthenticateAsClientAsync(hostname);
 ```
 
-#### 6.2 Create StunTlsServer
+#### 5.2 Create StunTlsServer
 
 ```
 Location: common/server/StunTlsServer.cs
@@ -668,7 +812,7 @@ public class StunTlsServer : IDisposable
 }
 ```
 
-#### 6.3 Create StunDtlsClient
+#### 5.3 Create StunDtlsClient
 
 ```
 Location: common/client/StunDtlsClient.cs
@@ -691,7 +835,7 @@ public class StunDtlsClient : IStunClient, IDisposable
 }
 ```
 
-#### 6.4 Create StunDtlsServer
+#### 5.4 Create StunDtlsServer
 
 ```
 Location: common/server/StunDtlsServer.cs
@@ -699,7 +843,7 @@ Location: common/server/StunDtlsServer.cs
 
 Similar considerations as the client - requires third-party DTLS library.
 
-#### 6.5 Certificate Management
+#### 5.5 Certificate Management
 
 Create utility class for certificate handling:
 
@@ -734,7 +878,7 @@ public static class CertificateManager
 
 ---
 
-## 7. ICE Support (RFC 8445)
+## 6. ICE Support (RFC 8445)
 
 ### Background
 
@@ -742,7 +886,7 @@ ICE (Interactive Connectivity Establishment) is the framework used by WebRTC to 
 
 ### Implementation Tasks
 
-#### 7.1 Add ICE Attributes
+#### 6.1 Add ICE Attributes
 
 Update `AttributeType.cs`:
 
@@ -763,7 +907,7 @@ common/core/ice/IceControlledAttribute.cs
 common/core/ice/IceControllingAttribute.cs
 ```
 
-#### 7.2 PriorityAttribute
+#### 6.2 PriorityAttribute
 
 ```csharp
 public class PriorityAttribute : MessageAttribute
@@ -787,7 +931,7 @@ public class PriorityAttribute : MessageAttribute
 }
 ```
 
-#### 7.3 ICE Controlling/Controlled
+#### 6.3 ICE Controlling/Controlled
 
 ```csharp
 public class IceControllingAttribute : MessageAttribute
@@ -801,7 +945,7 @@ public class IceControlledAttribute : MessageAttribute
 }
 ```
 
-#### 7.4 ICE Agent Implementation
+#### 6.4 ICE Agent Implementation
 
 ```
 Location: common/ice/IceAgent.cs
@@ -841,7 +985,7 @@ public enum IceConnectionState
 }
 ```
 
-#### 7.5 Candidate Representation
+#### 6.5 Candidate Representation
 
 ```
 Location: common/ice/IceCandidate.cs
@@ -893,182 +1037,7 @@ public enum CandidateType
 
 ---
 
-## 8. Test Coverage
-
-### Background
-
-Current test coverage is minimal with only 2 tests in `MessageTest.cs`. Comprehensive testing is essential for protocol correctness and regression prevention.
-
-### Implementation Tasks
-
-#### 8.1 Unit Tests for Attributes
-
-```
-Location: common.tests/AttributeTests.cs
-```
-
-Test each attribute type:
-- Serialization/deserialization round-trip
-- Edge cases (max values, empty values)
-- Invalid input handling
-
-```csharp
-public class AttributeTests
-{
-    [Fact]
-    public void XorMappedAddress_IPv4_RoundTrip() { }
-
-    [Fact]
-    public void XorMappedAddress_IPv6_RoundTrip() { }
-
-    [Fact]
-    public void ChangeRequest_AllCombinations() { }
-
-    [Theory]
-    [InlineData("192.168.1.1", 12345)]
-    [InlineData("0.0.0.0", 0)]
-    [InlineData("255.255.255.255", 65535)]
-    public void MappedAddress_VariousAddresses(string ip, int port) { }
-}
-```
-
-#### 8.2 Unit Tests for Message Parsing
-
-```
-Location: common.tests/MessageParsingTests.cs
-```
-
-```csharp
-public class MessageParsingTests
-{
-    [Fact]
-    public void Parse_ValidBindingRequest_Success() { }
-
-    [Fact]
-    public void Parse_TooShort_ThrowsArgumentOutOfRangeException() { }
-
-    [Fact]
-    public void Parse_InvalidMagicCookie_Behavior() { }
-
-    [Fact]
-    public void Parse_UnknownComprehensionRequired_Throws() { }
-
-    [Fact]
-    public void Parse_UnknownComprehensionOptional_Skips() { }
-
-    [Fact]
-    public void Parse_MultipleAttributes_AllParsed() { }
-}
-```
-
-#### 8.3 Unit Tests for Authentication
-
-```
-Location: common.tests/AuthenticationTests.cs
-```
-
-```csharp
-public class AuthenticationTests
-{
-    [Fact]
-    public void MessageIntegrity_ShortTerm_Compute() { }
-
-    [Fact]
-    public void MessageIntegrity_LongTerm_Compute() { }
-
-    [Fact]
-    public void MessageIntegrity_Validate_ValidMessage() { }
-
-    [Fact]
-    public void MessageIntegrity_Validate_TamperedMessage() { }
-
-    [Fact]
-    public void Fingerprint_Compute_CorrectValue() { }
-
-    [Fact]
-    public void Fingerprint_Validate_ValidMessage() { }
-}
-```
-
-#### 8.4 Integration Tests
-
-```
-Location: common.tests/IntegrationTests.cs
-```
-
-```csharp
-public class IntegrationTests
-{
-    [Fact]
-    public async Task UdpClient_LocalServer_BindingRequest()
-    {
-        using var server = new StunUdpServer(...);
-        server.Start(3478);
-
-        using var client = new StunUdpClient("127.0.0.1", 3478);
-        var response = await client.BindingRequestAsync();
-
-        Assert.True(response.Success);
-        Assert.NotNull(response.Message.Attributes);
-    }
-
-    [Fact]
-    public async Task TcpClient_LocalServer_BindingRequest() { }
-
-    [Fact]
-    public async Task DiscoveryClient_LocalServer_NatType() { }
-}
-```
-
-#### 8.5 Interoperability Tests
-
-```
-Location: common.tests/InteropTests.cs
-```
-
-Test against public STUN servers to verify interoperability:
-
-```csharp
-public class InteropTests
-{
-    private static readonly string[] PublicStunServers = new[]
-    {
-        "stun.l.google.com:19302",
-        "stun.stunprotocol.org:3478"
-    };
-
-    [Theory]
-    [MemberData(nameof(PublicStunServers))]
-    public async Task BindingRequest_PublicServer_ReturnsXorMappedAddress(string server) { }
-}
-```
-
-#### 8.6 Property-Based Tests
-
-Consider using FsCheck or similar for property-based testing:
-
-```csharp
-[Property]
-public Property MessageRoundTrip_PreservesData(byte[] transactionId, ushort port)
-{
-    // Generate random valid message, serialize, parse, compare
-}
-```
-
-### Affected Files
-
-| File | Changes |
-|------|---------|
-| `common.tests/AttributeTests.cs` | New file |
-| `common.tests/MessageParsingTests.cs` | New file |
-| `common.tests/AuthenticationTests.cs` | New file |
-| `common.tests/IntegrationTests.cs` | New file |
-| `common.tests/InteropTests.cs` | New file |
-| `common.tests/common.tests.csproj` | Add test packages |
-
----
-
-## 9. Configuration & Observability
+## 7. Configuration & Observability
 
 ### Background
 
@@ -1076,7 +1045,7 @@ The current implementation has hardcoded values and writes debug output to stder
 
 ### Implementation Tasks
 
-#### 9.1 Configuration Model
+#### 7.1 Configuration Model
 
 ```
 Location: common/config/StunServerConfiguration.cs
@@ -1104,7 +1073,7 @@ public class StunServerConfiguration
 }
 ```
 
-#### 9.2 Structured Logging
+#### 7.2 Structured Logging
 
 Replace `Console.Error.WriteLine` calls with proper logging:
 
@@ -1139,7 +1108,7 @@ await Console.Error.WriteLineAsync($"Attribute count: {attributeList.Count}");
 _logger.LogDebug("Sending response with {AttributeCount} attributes", attributeList.Count);
 ```
 
-#### 9.3 Metrics Collection
+#### 7.3 Metrics Collection
 
 ```
 Location: common/metrics/StunMetrics.cs
@@ -1168,7 +1137,7 @@ public class StunMetrics
 }
 ```
 
-#### 9.4 Health Checks
+#### 7.4 Health Checks
 
 ```
 Location: common/health/StunHealthCheck.cs
@@ -1186,7 +1155,7 @@ public class StunHealthCheck
 }
 ```
 
-#### 9.5 Configuration Loading
+#### 7.5 Configuration Loading
 
 Support JSON configuration files:
 
@@ -1223,7 +1192,7 @@ Support JSON configuration files:
 
 ---
 
-## 10. IPv6 Improvements
+## 8. IPv6 Improvements
 
 ### Background
 
@@ -1231,7 +1200,7 @@ The current implementation has IPv6 support in `XorMappedAddressAttribute.cs` bu
 
 ### Implementation Tasks
 
-#### 10.1 Dual-Stack Server Binding
+#### 8.1 Dual-Stack Server Binding
 
 Update `StunUdpServer.cs`:
 
@@ -1254,14 +1223,14 @@ public void Start(ushort port, bool dualStack = true, CancellationToken ct = def
 }
 ```
 
-#### 10.2 IPv6 Address Handling in Attributes
+#### 8.2 IPv6 Address Handling in Attributes
 
 Verify `XorMappedAddressAttribute.cs` correctly handles:
 - IPv4-mapped IPv6 addresses (::ffff:192.0.2.1)
 - Link-local addresses (fe80::)
 - Zone IDs for link-local
 
-#### 10.3 IPv6 Preference Configuration
+#### 8.3 IPv6 Preference Configuration
 
 ```csharp
 public enum AddressFamilyPreference
@@ -1274,7 +1243,7 @@ public enum AddressFamilyPreference
 }
 ```
 
-#### 10.4 Client IPv6 Support
+#### 8.4 Client IPv6 Support
 
 Update `StunUdpClient.cs` and `StunTcpClient.cs`:
 
@@ -1288,7 +1257,7 @@ public StunUdpClient(string hostname, int port = 3478, AddressFamilyPreference p
 }
 ```
 
-#### 10.5 IPv6 Unit Tests
+#### 8.5 IPv6 Unit Tests
 
 ```csharp
 [Fact]
@@ -1327,7 +1296,7 @@ public void XorMappedAddress_IPv4MappedIPv6()
 
 ---
 
-## 11. Alternate Server Support
+## 9. Alternate Server Support
 
 ### Background
 
@@ -1335,7 +1304,7 @@ RFC 5389 defines the ALTERNATE-SERVER attribute for redirecting clients to diffe
 
 ### Implementation Tasks
 
-#### 11.1 AlternateServerAttribute
+#### 9.1 AlternateServerAttribute
 
 The attribute type already exists. Create the implementation:
 
@@ -1358,7 +1327,7 @@ public class AlternateServerAttribute : AddressAttribute
 }
 ```
 
-#### 11.2 Server Configuration for Alternates
+#### 9.2 Server Configuration for Alternates
 
 Update `StunServerConfiguration.cs`:
 
@@ -1378,7 +1347,7 @@ public class StunServerConfiguration
 }
 ```
 
-#### 11.3 Update Server Response Generation
+#### 9.3 Update Server Response Generation
 
 Update `StunUdpServer.cs`:
 
@@ -1398,7 +1367,7 @@ if (_config.IncludeAlternateInResponses && _config.AlternateServers?.Any() == tr
 }
 ```
 
-#### 11.4 Client Handling of ALTERNATE-SERVER
+#### 9.4 Client Handling of ALTERNATE-SERVER
 
 When client receives error 300 (Try Alternate), automatically retry with alternate:
 
@@ -1433,7 +1402,7 @@ public async Task<MessageResponse> BindingRequestWithFailoverAsync(...)
 }
 ```
 
-#### 11.5 OTHER-ADDRESS for NAT Detection
+#### 9.5 OTHER-ADDRESS for NAT Detection
 
 The server should include OTHER-ADDRESS to support RFC 5780 NAT detection:
 
@@ -1450,7 +1419,7 @@ if (_config.OtherAddress != null)
 }
 ```
 
-#### 11.6 RESPONSE-ORIGIN
+#### 9.6 RESPONSE-ORIGIN
 
 Include RESPONSE-ORIGIN to indicate which server address sent the response:
 
@@ -1481,17 +1450,15 @@ attributeList.Add(new ResponseOriginAttribute
 
 | Enhancement | Effort | Impact | Dependencies | Suggested Order |
 |------------|--------|--------|--------------|-----------------|
-| 3. Error Response Handling | Low | High | None | 1 |
-| 8. Test Coverage | Medium | High | None | 2 |
-| 1. STUN Authentication | High | Critical | #3 | 3 |
-| 2. TCP Server | Medium | Medium | None | 4 |
-| 11. Alternate Server | Low | Medium | None | 5 |
-| 9. Configuration & Observability | Medium | High | None | 6 |
-| 10. IPv6 Improvements | Low | Medium | #8 | 7 |
-| 4. RFC 5780 NAT Discovery | Medium | Medium | #11 | 8 |
-| 6. TLS/DTLS Transport | High | High | #2 | 9 |
-| 7. ICE Support | High | High | #1, #6 | 10 |
-| 5. TURN Support | Very High | Critical | #1, #7 | 11 |
+| 1. STUN Authentication | High | Critical | None | 1 |
+| 2. TCP Server | Medium | Medium | None | 2 |
+| 9. Alternate Server | Low | Medium | None | 3 |
+| 7. Configuration & Observability | Medium | High | None | 4 |
+| 8. IPv6 Improvements | Low | Medium | None | 5 |
+| 3. RFC 5780 NAT Discovery | Medium | Medium | #9 | 6 |
+| 5. TLS/DTLS Transport | High | High | #2 | 7 |
+| 6. ICE Support | High | High | #1, #5 | 8 |
+| 4. TURN Support | Very High | Critical | #1, #6 | 9 |
 
 ---
 
@@ -1503,8 +1470,8 @@ attributeList.Add(new ResponseOriginAttribute
 - [ ] FINGERPRINT (CRC-32)
 - [ ] Short-term credentials
 - [ ] Long-term credentials
-- [ ] Error responses (400, 401, 420, 438, 500)
-- [ ] UNKNOWN-ATTRIBUTES
+- [x] Error responses (400, 401, 420, 438, 500)
+- [x] UNKNOWN-ATTRIBUTES
 - [ ] TCP framing
 - [ ] TLS support
 
@@ -1520,10 +1487,11 @@ attributeList.Add(new ResponseOriginAttribute
 
 ### RFC 5780 (NAT Behavior Discovery)
 
-- [ ] Mapping behavior detection
-- [ ] Filtering behavior detection
-- [ ] RESPONSE-ORIGIN
-- [ ] OTHER-ADDRESS
+- [x] Mapping behavior detection (client-side)
+- [x] Filtering behavior detection (client-side)
+- [x] RESPONSE-ORIGIN
+- [x] OTHER-ADDRESS
+- [ ] Server-side CHANGE-REQUEST handling
 
 ### RFC 8445 (ICE)
 

@@ -69,7 +69,7 @@ class Program
         var rfcOption = new Option<NatDiscoveryRfc>(
             aliases: ["--rfc", "-r"],
             description: "RFC to use for NAT discovery",
-            getDefaultValue: () => NatDiscoveryRfc.Rfc3489);
+            getDefaultValue: () => NatDiscoveryRfc.Rfc5780);
 
         discoverCommand.AddOption(rfcOption);
 

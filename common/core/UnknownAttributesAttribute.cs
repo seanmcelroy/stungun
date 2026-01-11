@@ -77,8 +77,7 @@ namespace stungun.common.core
         /// </summary>
         public new byte[] ToByteArray()
         {
-            if (Value == null)
-                Value = Array.Empty<byte>();
+            Value ??= [];
 
             // Calculate padded length for wire format
             var paddedValueLength = (Value.Length + 3) & ~3;

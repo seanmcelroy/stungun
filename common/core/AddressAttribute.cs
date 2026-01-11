@@ -141,6 +141,14 @@ namespace stungun.common.core
             };
         }
 
+        /// <summary>
+        /// Sets the attribute type. Used for creating RESPONSE-ORIGIN, OTHER-ADDRESS, etc.
+        /// </summary>
+        public void SetType(AttributeType type)
+        {
+            Type = type;
+        }
+
         public override string ToString() => $"{IPAddress}:{Port}";
     }
 }

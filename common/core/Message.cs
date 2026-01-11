@@ -53,7 +53,7 @@ namespace stungun.common.core
             var ret = new Message
             {
                 Header = header,
-                Attributes = bytes.Length > 20 ? MessageAttribute.ParseList(bytes.Slice(20).ToArray(), header.TransactionId).ToList() : null
+                Attributes = bytes.Length > 20 ? MessageAttribute.ParseList(bytes[20..].ToArray(), header.TransactionId).ToList() : null
             };
 
             return ret;
@@ -61,12 +61,12 @@ namespace stungun.common.core
 
         public void PrintDebug()
         {
-            this.Header.PrintDebug();
-            if (this.Attributes != null)
-                foreach (var attr in this.Attributes)
+            Header.PrintDebug();
+            if (Attributes != null)
+                foreach (var attr in Attributes)
                     attr.PrintDebug();
         }
 
-        public override string ToString() => $"{Enum.GetName(typeof(MessageType), Header.Type)}";
+        public override readonly string ToString() => $"{Enum.GetName(Header.Type)}";
     }
 }
