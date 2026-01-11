@@ -85,74 +85,224 @@ namespace stungun.common.server
 
             do
             {
+                UdpReceiveResult udpReceive = default;
                 try
                 {
-                    var udpReceive = await udpServer.ReceiveAsync();
+                    udpReceive = await udpServer.ReceiveAsync();
+
+                    // Validate minimum message length
+                    if (udpReceive.Buffer.Length < 20)
+                    {
+                        await Console.Error.WriteLineAsync($"Received malformed message: too short ({udpReceive.Buffer.Length} bytes)");
+                        // Cannot send error response without valid transaction ID
+                        continue;
+                    }
+
                     var req = Message.Parse(udpReceive.Buffer);
 
                     switch (req.Header.Type)
                     {
                         case MessageType.BindingRequest:
-                            {
-                                req.PrintDebug();
+                            await HandleBindingRequest(udpServer, udpReceive, req);
+                            break;
 
-                                if (_transactionLog.Count > 99)
-                                    _transactionLog.Dequeue();
-
-                                var txns = Encoding.UTF8.GetString(req.Header.TransactionId);
-
-                                if (_transactionLog.Contains(txns))
-                                    continue;
-
-                                _transactionLog.Enqueue(txns);
-
-                                var attributeList = new List<MessageAttribute>() {
-                                    new MappedAddressAttribute {
-                                        AddressFamily = udpReceive.RemoteEndPoint.AddressFamily,
-                                        Port = (ushort)udpReceive.RemoteEndPoint.Port,
-                                        IPAddress = udpReceive.RemoteEndPoint.Address
-                                    },
-                                    new XorMappedAddressAttribute(req.Header.TransactionId) {
-                                        AddressFamily = udpReceive.RemoteEndPoint.AddressFamily,
-                                        Port = (ushort)udpReceive.RemoteEndPoint.Port,
-                                        IPAddress = udpReceive.RemoteEndPoint.Address
-                                    }
-                                }.AsReadOnly();
-
-                                var resp = new Message
-                                {
-                                    Header = new MessageHeader
-                                    {
-                                        Type = MessageType.BindingResponse,
-                                        MessageLength = (ushort)attributeList.Sum(a => a.Bytes.Count),
-                                        MagicCookie = req.Header.MagicCookie,
-                                        TransactionId = req.Header.TransactionId
-                                    },
-                                    Attributes = attributeList
-                                };
-
-                                await Console.Error.WriteLineAsync($"Attribute count: {attributeList.Count}");
-
-                                resp.PrintDebug();
-
-                                var respBytes = resp.ToByteArray();
-                                var bytesSent = await udpServer.SendAsync(respBytes, respBytes.Length, udpReceive.RemoteEndPoint);
-
-                                break;
-                            }
                         case MessageType.BindingError:
                             req.PrintDebug();
                             break;
+
                         default:
+                            // Unknown message type - send 400 Bad Request
+                            await Console.Error.WriteLineAsync($"Unknown message type: 0x{(ushort)req.Header.Type:X4}");
+                            await SendErrorResponse(
+                                udpServer,
+                                udpReceive.RemoteEndPoint,
+                                req.Header,
+                                StunErrorCodes.BadRequest,
+                                $"Unknown message type: 0x{(ushort)req.Header.Type:X4}");
                             break;
+                    }
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    await Console.Error.WriteLineAsync($"Bad request: {ex.Message}");
+                    // Try to send error response if we have enough data
+                    if (udpReceive.Buffer?.Length >= 20)
+                    {
+                        try
+                        {
+                            var header = MessageHeader.Parse(udpReceive.Buffer);
+                            await SendErrorResponse(
+                                udpServer,
+                                udpReceive.RemoteEndPoint,
+                                header,
+                                StunErrorCodes.BadRequest,
+                                "Malformed request");
+                        }
+                        catch { /* Ignore errors sending error response */ }
                     }
                 }
                 catch (Exception ex)
                 {
-                    await Console.Error.WriteLineAsync(ex.ToString());
+                    await Console.Error.WriteLineAsync($"Server error: {ex}");
+                    // Try to send 500 error if possible
+                    if (udpReceive.Buffer?.Length >= 20)
+                    {
+                        try
+                        {
+                            var header = MessageHeader.Parse(udpReceive.Buffer);
+                            await SendErrorResponse(
+                                udpServer,
+                                udpReceive.RemoteEndPoint,
+                                header,
+                                StunErrorCodes.ServerError,
+                                "Internal server error");
+                        }
+                        catch { /* Ignore errors sending error response */ }
+                    }
                 }
 
             } while (!cancellationToken.IsCancellationRequested);
+        }
+
+        private static async Task HandleBindingRequest(UdpClient udpServer, UdpReceiveResult udpReceive, Message req)
+        {
+            req.PrintDebug();
+
+            // Check for duplicate transaction
+            if (_transactionLog.Count > 99)
+                _transactionLog.Dequeue();
+
+            var txns = Encoding.UTF8.GetString(req.Header.TransactionId);
+
+            if (_transactionLog.Contains(txns))
+                return;
+
+            _transactionLog.Enqueue(txns);
+
+            // Check for unknown comprehension-required attributes
+            if (req.Attributes != null)
+            {
+                var parseResult = MessageAttribute.ParseListWithResult(
+                    udpReceive.Buffer.Skip(20).ToArray(),
+                    req.Header.TransactionId);
+
+                if (parseResult.HasUnknownComprehensionRequired)
+                {
+                    await Console.Error.WriteLineAsync(
+                        $"Request contains unknown comprehension-required attributes: " +
+                        string.Join(", ", parseResult.UnknownComprehensionRequiredTypes.Select(t => $"0x{t:X4}")));
+
+                    await SendUnknownAttributeError(
+                        udpServer,
+                        udpReceive.RemoteEndPoint,
+                        req.Header,
+                        parseResult.UnknownComprehensionRequiredTypes);
+                    return;
+                }
+            }
+
+            // Build successful response
+            var attributeList = new List<MessageAttribute>
+            {
+                new MappedAddressAttribute
+                {
+                    AddressFamily = udpReceive.RemoteEndPoint.AddressFamily,
+                    Port = (ushort)udpReceive.RemoteEndPoint.Port,
+                    IPAddress = udpReceive.RemoteEndPoint.Address
+                },
+                new XorMappedAddressAttribute(req.Header.TransactionId)
+                {
+                    AddressFamily = udpReceive.RemoteEndPoint.AddressFamily,
+                    Port = (ushort)udpReceive.RemoteEndPoint.Port,
+                    IPAddress = udpReceive.RemoteEndPoint.Address
+                }
+            }.AsReadOnly();
+
+            var resp = new Message
+            {
+                Header = new MessageHeader
+                {
+                    Type = MessageType.BindingResponse,
+                    MessageLength = (ushort)attributeList.Sum(a => a.Bytes.Count),
+                    MagicCookie = req.Header.MagicCookie,
+                    TransactionId = req.Header.TransactionId
+                },
+                Attributes = attributeList
+            };
+
+            await Console.Error.WriteLineAsync($"Sending BindingResponse with {attributeList.Count} attributes");
+            resp.PrintDebug();
+
+            var respBytes = resp.ToByteArray();
+            await udpServer.SendAsync(respBytes, respBytes.Length, udpReceive.RemoteEndPoint);
+        }
+
+        /// <summary>
+        /// Sends an error response with the specified error code and reason.
+        /// </summary>
+        private static async Task SendErrorResponse(
+            UdpClient udpServer,
+            IPEndPoint remoteEndpoint,
+            MessageHeader requestHeader,
+            int errorCode,
+            string? reason = null)
+        {
+            var errorAttr = reason != null
+                ? StunErrorCodes.CreateErrorAttribute(errorCode, reason)
+                : StunErrorCodes.CreateErrorAttribute(errorCode);
+
+            var attributeList = new List<MessageAttribute> { errorAttr }.AsReadOnly();
+
+            var resp = new Message
+            {
+                Header = new MessageHeader
+                {
+                    Type = MessageType.BindingError,
+                    MessageLength = (ushort)attributeList.Sum(a => a.Bytes.Count),
+                    MagicCookie = requestHeader.MagicCookie,
+                    TransactionId = requestHeader.TransactionId
+                },
+                Attributes = attributeList
+            };
+
+            await Console.Error.WriteLineAsync($"Sending BindingError {errorCode}: {errorAttr.ReasonPhrase}");
+            resp.PrintDebug();
+
+            var respBytes = resp.ToByteArray();
+            await udpServer.SendAsync(respBytes, respBytes.Length, remoteEndpoint);
+        }
+
+        /// <summary>
+        /// Sends a 420 Unknown Attribute error response with the list of unknown attribute types.
+        /// </summary>
+        private static async Task SendUnknownAttributeError(
+            UdpClient udpServer,
+            IPEndPoint remoteEndpoint,
+            MessageHeader requestHeader,
+            IEnumerable<ushort> unknownTypes)
+        {
+            var errorAttr = StunErrorCodes.CreateErrorAttribute(StunErrorCodes.UnknownAttribute);
+            var unknownAttr = new UnknownAttributesAttribute(unknownTypes);
+
+            var attributeList = new List<MessageAttribute> { errorAttr, unknownAttr }.AsReadOnly();
+
+            var resp = new Message
+            {
+                Header = new MessageHeader
+                {
+                    Type = MessageType.BindingError,
+                    MessageLength = (ushort)attributeList.Sum(a => a.Bytes.Count),
+                    MagicCookie = requestHeader.MagicCookie,
+                    TransactionId = requestHeader.TransactionId
+                },
+                Attributes = attributeList
+            };
+
+            await Console.Error.WriteLineAsync($"Sending BindingError 420 with unknown attributes: {unknownAttr}");
+            resp.PrintDebug();
+
+            var respBytes = resp.ToByteArray();
+            await udpServer.SendAsync(respBytes, respBytes.Length, remoteEndpoint);
         }
     }
 }

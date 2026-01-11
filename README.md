@@ -21,3 +21,18 @@ requests with the MappedAttribute and XorMappedAttribute attributes.  Building
 the project and running it with ```dotnet run --project server/``` will start the server.
 
 Pull requests or questions are welcome!
+
+# Standards compliance
+
+This project aims to provide compliance with the following RFCs:
+
+- RFC3489: STUN - Simple Traversal of User Datagram Protocol (UDP)Through Network Address Translators (NATs)
+- RFC5245: Interactive Connectivity Establishment (ICE): A Protocol for Network Address Translator (NAT) Traversal for Offer/Answer Protocols
+- RFC5389: Session Traversal Utilities for NAT (STUN)
+- RFC5626: Managing Client Initiated Connections in the Session Initiation Protocol (SIP)
+- RFC5766: Traversal Using Relays around NAT (TURN): Relay Extensions to Session Traversal Utilities for NAT (STUN)
+- RFC5780: NAT Behavior Discovery Using STUN
+- RFC5853: Test vectors for STUN
+- RFC6062: Traversal Using Relays around NAT (TURN) Extensions for TCP Allocations
+- RFC6156: Traversal Using Relays around NAT (TURN) Extension for IPv4/IPv6 Transition
+- RFC6679: Explicit Congestion Notification (ECN) for RTP over UDP

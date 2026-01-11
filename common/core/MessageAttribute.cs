@@ -4,6 +4,16 @@ using System.Linq;
 
 namespace stungun.common.core
 {
+    /// <summary>
+    /// Result of parsing attributes, including any unknown comprehension-required types encountered.
+    /// </summary>
+    public class AttributeParseResult
+    {
+        public List<MessageAttribute> Attributes { get; } = new List<MessageAttribute>();
+        public List<ushort> UnknownComprehensionRequiredTypes { get; } = new List<ushort>();
+        public bool HasUnknownComprehensionRequired => UnknownComprehensionRequiredTypes.Count > 0;
+    }
+
     public class MessageAttribute
     {
         private byte[]? _byteArray;
@@ -11,6 +21,11 @@ namespace stungun.common.core
         public AttributeType Type { get; protected set; }
         public ushort AttributeLength { get; protected set; }
         public byte[]? Value { get; protected set; }
+
+        /// <summary>
+        /// For unknown attributes, stores the raw type value.
+        /// </summary>
+        public ushort RawType { get; protected set; }
 
         public IReadOnlyList<byte> Bytes
         {
@@ -22,8 +37,21 @@ namespace stungun.common.core
             private set => _byteArray = [.. value];
         }
 
-        public static MessageAttribute Parse(byte[] bytes)
+        public static MessageAttribute Parse(byte[] bytes) => Parse(bytes, out _);
+
+        /// <summary>
+        /// Parses a single attribute from the byte array.
+        /// </summary>
+        /// <param name="bytes">The raw bytes to parse.</param>
+        /// <param name="unknownComprehensionRequired">
+        /// If the attribute is an unknown comprehension-required type, this will be set to the raw type value.
+        /// Otherwise, it will be null.
+        /// </param>
+        /// <returns>The parsed attribute, or an Unknown attribute if not recognized.</returns>
+        public static MessageAttribute Parse(byte[] bytes, out ushort? unknownComprehensionRequired)
         {
+            unknownComprehensionRequired = null;
+
             if (bytes == null)
                 throw new ArgumentNullException(nameof(bytes));
             if (bytes.Length < 4)
@@ -39,22 +67,36 @@ namespace stungun.common.core
 
             if (!Enum.IsDefined(typeof(AttributeType), aType))
             {
+                // Comprehension-optional attributes have type >= 0x8000
                 if (aType >= 0x8000 && aType <= 0xFFFF)
                 {
-                    Console.Error.WriteLine($"Skipping unknown comprehension-optional value: {aType:x2}");
+                    Console.Error.WriteLine($"Skipping unknown comprehension-optional attribute: 0x{aType:x4}");
                     return new MessageAttribute
                     {
                         Type = AttributeType.Unknown,
+                        RawType = aType,
                         AttributeLength = aLen,
+                        Value = aVal
                     };
                 }
-                throw new InvalidOperationException($"Unknown comprehension-require attribute {aType:x2}");
+
+                // Comprehension-required attributes have type < 0x8000
+                // Instead of throwing, we return an Unknown attribute and track the type
+                Console.Error.WriteLine($"Unknown comprehension-required attribute: 0x{aType:x4}");
+                unknownComprehensionRequired = aType;
+                return new MessageAttribute
+                {
+                    Type = AttributeType.Unknown,
+                    RawType = aType,
+                    AttributeLength = aLen,
+                    Value = aVal
+                };
             }
 
             var ret = new MessageAttribute
             {
-
                 Type = (AttributeType)aType,
+                RawType = aType,
                 AttributeLength = aLen,
                 Value = aVal,
                 Bytes = bytes
@@ -63,50 +105,87 @@ namespace stungun.common.core
             return ret;
         }
 
+        /// <summary>
+        /// Parses a list of attributes from the byte array.
+        /// This overload is for backward compatibility and ignores unknown comprehension-required types.
+        /// </summary>
         public static IEnumerable<MessageAttribute> ParseList(byte[] bytes, byte[] transactionId)
         {
+            var result = ParseListWithResult(bytes, transactionId);
+            return result.Attributes;
+        }
+
+        /// <summary>
+        /// Parses a list of attributes from the byte array, also returning any unknown
+        /// comprehension-required attribute types encountered.
+        /// </summary>
+        public static AttributeParseResult ParseListWithResult(byte[] bytes, byte[] transactionId)
+        {
+            var result = new AttributeParseResult();
+
             if (bytes == null)
                 throw new ArgumentNullException(nameof(bytes));
             if (bytes.Length < 4)
-                throw new ArgumentOutOfRangeException(nameof(bytes), "Message attributes must be at least 4 bytes long");
+            {
+                // No attributes to parse
+                return result;
+            }
 
             var attrOffset = 0;
             do
             {
-                var nextAttribute = Parse(bytes.Skip(attrOffset).ToArray());
+                // Account for padding to 4-byte boundary
+                var paddedOffset = attrOffset;
+                if (paddedOffset % 4 != 0)
+                    paddedOffset += 4 - (paddedOffset % 4);
+
+                if (paddedOffset >= bytes.Length)
+                    break;
+
+                var nextAttribute = Parse(bytes.Skip(paddedOffset).ToArray(), out var unknownType);
+
+                if (unknownType.HasValue)
+                {
+                    result.UnknownComprehensionRequiredTypes.Add(unknownType.Value);
+                }
+
                 if (nextAttribute != null && nextAttribute.Type != AttributeType.Unknown)
                 {
-                    switch (nextAttribute.Type)
+                    var typedAttribute = nextAttribute.Type switch
                     {
-                        case AttributeType.ChangeRequest:
-                            yield return ChangeRequestAttribute.FromGenericAttribute(nextAttribute);
-                            break;
+                        AttributeType.ChangeRequest =>
+                            ChangeRequestAttribute.FromGenericAttribute(nextAttribute),
 
-                        case AttributeType.MappedAddress:
-                            yield return MappedAddressAttribute.FromGenericAttribute(nextAttribute);
-                            break;
+                        AttributeType.MappedAddress =>
+                            MappedAddressAttribute.FromGenericAttribute(nextAttribute),
 
-                        case AttributeType.XorMappedAddress:
-                        case AttributeType.XorMappedAddress2:
-                            yield return XorMappedAddressAttribute.FromGenericAttribute(nextAttribute, transactionId);
-                            break;
+                        AttributeType.XorMappedAddress or AttributeType.XorMappedAddress2 =>
+                            XorMappedAddressAttribute.FromGenericAttribute(nextAttribute, transactionId),
 
-                        case AttributeType.ReservedResponseAddress:
-                        case AttributeType.ReservedSourceAddress:
-                        case AttributeType.ReservedChangedAddress:
-                        case AttributeType.AlternateServer:
-                        case AttributeType.ResponseOrigin:
-                        case AttributeType.OtherAddress:
-                            yield return AddressAttribute.FromGenericAttribute(nextAttribute);
-                            break;
+                        AttributeType.ReservedResponseAddress or
+                        AttributeType.ReservedSourceAddress or
+                        AttributeType.ReservedChangedAddress or
+                        AttributeType.AlternateServer or
+                        AttributeType.ResponseOrigin or
+                        AttributeType.OtherAddress =>
+                            AddressAttribute.FromGenericAttribute(nextAttribute),
 
-                        default:
-                            yield return nextAttribute;
-                            break;
-                    }
+                        AttributeType.ErrorCode =>
+                            ErrorCodeAttribute.FromGenericAttribute(nextAttribute),
+
+                        AttributeType.UnknownAttributes =>
+                            UnknownAttributesAttribute.FromGenericAttribute(nextAttribute),
+
+                        _ => nextAttribute
+                    };
+
+                    result.Attributes.Add(typedAttribute);
                 }
-                attrOffset += (4 + nextAttribute?.AttributeLength ?? 0);
+
+                attrOffset = paddedOffset + 4 + (nextAttribute?.AttributeLength ?? 0);
             } while (attrOffset < bytes.Length);
+
+            return result;
         }
 
         public static byte[] ToByteArray(MessageAttribute attribute)

@@ -4,43 +4,40 @@ using System.Net;
 namespace stungun.common.core
 {
     public class AddressAttribute : MessageAttribute
-    {
+    {   
         public virtual System.Net.Sockets.AddressFamily AddressFamily
         {
             get
             {
-                if (this.Value == null || this.Value.Length < 4)
+                if (Value == null || Value.Length < 4)
                     return System.Net.Sockets.AddressFamily.Unspecified;
 
-                var af = this.Value[1];
-                switch (af)
+                var af = Value[1];
+                return af switch
                 {
-                    case 0x01:
-                        return System.Net.Sockets.AddressFamily.InterNetwork;
-                    case 0x02:
-                        return System.Net.Sockets.AddressFamily.InterNetworkV6;
-                    default:
-                        return System.Net.Sockets.AddressFamily.Unknown;
-                }
+                    0x01 => System.Net.Sockets.AddressFamily.InterNetwork,
+                    0x02 => System.Net.Sockets.AddressFamily.InterNetworkV6,
+                    _ => System.Net.Sockets.AddressFamily.Unknown,
+                };
             }
             set
             {
-                if (this.Value == null)
+                if (Value == null)
                 {
-                    this.Value = new byte[8];
-                    this.AttributeLength = (ushort)this.Value.Length;
+                    Value = new byte[8];
+                    AttributeLength = (ushort)Value.Length;
                 }
 
                 switch (value)
                 {
                     case System.Net.Sockets.AddressFamily.InterNetwork:
-                        this.Value[1] = 0x01;
+                        Value[1] = 0x01;
                         break;
                     case System.Net.Sockets.AddressFamily.InterNetworkV6:
-                        this.Value[1] = 0x02;
+                        Value[1] = 0x02;
                         break;
                     default:
-                        this.Value[1] = 0x00;
+                        Value[1] = 0x00;
                         break;
                 }
             }
@@ -48,16 +45,16 @@ namespace stungun.common.core
 
         public virtual ushort Port
         {
-            get => this.Value == null ? (ushort)0 : BitConverter.ToUInt16(new byte[] { this.Value[3], this.Value[2] });
+            get => Value == null ? (ushort)0 : BitConverter.ToUInt16(new byte[] { Value[3], Value[2] });
             set
             {
-                if (this.Value == null)
+                if (Value == null)
                 {
-                    this.Value = new byte[8];
-                    this.AttributeLength = (ushort)this.Value.Length;
+                    Value = new byte[8];
+                    AttributeLength = (ushort)Value.Length;
                 }
 
-                Array.Copy(BitConverter.GetBytes(MessageUtility.SwapBytes(value)), 0, this.Value, 2, 2);
+                Array.Copy(BitConverter.GetBytes(MessageUtility.SwapBytes(value)), 0, Value, 2, 2);
             }
         }
 
@@ -65,16 +62,16 @@ namespace stungun.common.core
         {
             get
             {
-                switch (this.AddressFamily)
+                switch (AddressFamily)
                 {
                     case System.Net.Sockets.AddressFamily.InterNetwork:
                         {
-                            var addrBytes = ((ReadOnlySpan<byte>)this.Value).Slice(4, 4);
+                            var addrBytes = ((ReadOnlySpan<byte>)Value).Slice(4, 4);
                             return new IPAddress(addrBytes);
                         }
                     case System.Net.Sockets.AddressFamily.InterNetworkV6:
                         {
-                            var addrBytes = ((ReadOnlySpan<byte>)this.Value).Slice(4, 16);
+                            var addrBytes = ((ReadOnlySpan<byte>)Value).Slice(4, 16);
                             return new IPAddress(addrBytes);
                         }
                     default:
@@ -84,23 +81,22 @@ namespace stungun.common.core
 
             set
             {
-                if (value == null)
-                    throw new ArgumentNullException(nameof(value));
+                ArgumentNullException.ThrowIfNull(value);
 
-                if (this.Value == null)
+                if (Value == null)
                     switch (value.AddressFamily)
                     {
                         case System.Net.Sockets.AddressFamily.InterNetworkV6:
-                            this.Value = new byte[20];
-                            Array.Copy(value.GetAddressBytes(), 0, this.Value, 4, 20);
+                            Value = new byte[20];
+                            Array.Copy(value.GetAddressBytes(), 0, Value, 4, 20);
                             break;
                         case System.Net.Sockets.AddressFamily.InterNetwork:
-                            this.Value = new byte[8];
-                            Array.Copy(value.GetAddressBytes(), 0, this.Value, 4, 4);
+                            Value = new byte[8];
+                            Array.Copy(value.GetAddressBytes(), 0, Value, 4, 4);
                             break;
 
                         default:
-                            this.Value = new byte[8];
+                            Value = new byte[8];
                             break;
                     }
                 else
@@ -108,30 +104,30 @@ namespace stungun.common.core
                     switch (value.AddressFamily)
                     {
                         case System.Net.Sockets.AddressFamily.InterNetworkV6:
-                            if (this.Value.Length < 20)
+                            if (Value.Length < 20)
                             {
                                 var newVal = new byte[20];
-                                Array.Copy(this.Value, newVal, this.Value.Length);
-                                this.Value = newVal;
+                                Array.Copy(Value, newVal, Value.Length);
+                                Value = newVal;
                             }
-                            Array.Copy(value.GetAddressBytes(), 0, this.Value, 4, 20);
+                            Array.Copy(value.GetAddressBytes(), 0, Value, 4, 20);
                             break;
                         case System.Net.Sockets.AddressFamily.InterNetwork:
-                            if (this.Value.Length > 8)
+                            if (Value.Length > 8)
                             {
                                 var newVal = new byte[8];
-                                Array.Copy(this.Value, newVal, 4);
-                                this.Value = newVal;
+                                Array.Copy(Value, newVal, 4);
+                                Value = newVal;
                             }
-                            Array.Copy(value.GetAddressBytes(), 0, this.Value, 4, 4);
+                            Array.Copy(value.GetAddressBytes(), 0, Value, 4, 4);
                             break;
                         default:
-                            this.Value = new byte[8];
+                            Value = new byte[8];
                             break;
                     }
                 }
 
-                this.AttributeLength = (ushort)this.Value.Length;
+                AttributeLength = (ushort)Value.Length;
             }
         }
 
