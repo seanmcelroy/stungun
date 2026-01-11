@@ -16,10 +16,10 @@ namespace stungun.common.core
         {
             get
             {
-                this._byteArray = ToByteArray();
-                return this._byteArray.ToList().AsReadOnly();
+                _byteArray = ToByteArray();
+                return _byteArray.ToList().AsReadOnly();
             }
-            private set => this._byteArray = value.ToArray();
+            private set => _byteArray = [.. value];
         }
 
         public static MessageAttribute Parse(byte[] bytes)
@@ -31,8 +31,8 @@ namespace stungun.common.core
 
             var bytesSpan = (ReadOnlySpan<byte>)bytes;
 
-            var aType = BitConverter.ToUInt16(new byte[] { bytes[1], bytes[0] });
-            var aLen = BitConverter.ToUInt16(new byte[] { bytes[3], bytes[2] });
+            var aType = BitConverter.ToUInt16([bytes[1], bytes[0]]);
+            var aLen = BitConverter.ToUInt16([bytes[3], bytes[2]]);
             if (bytesSpan.Length < aLen - 4)
                 throw new InvalidOperationException("Insufficient attribute length");
             var aVal = bytesSpan.Slice(4, aLen).ToArray();
@@ -131,7 +131,7 @@ namespace stungun.common.core
         {
             Console.WriteLine($"| Type = 0x{BitConverter.GetBytes((ushort)Type).Reverse().Select(b => $"{b:x2}").Aggregate((c, n) => c + n)} {(Enum.GetName(typeof(AttributeType), Type) ?? "Unknown").PadRight(16, ' ')}| MsgLen = {AttributeLength.ToString().PadRight(21, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
-            for (var i = 0; i < AttributeLength / 4; i++)
+            for (var i = 0; i < AttributeLength / 4 && Value != null; i++)
                 Console.WriteLine($"|                          {Value.Skip(i * 4).Take(4).Select(b => $"{b:x2} ").Reverse().Aggregate((c, n) => c + n).PadRight(37, ' ')}|");
             Console.WriteLine($"+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+");
         }

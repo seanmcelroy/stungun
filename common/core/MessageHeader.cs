@@ -12,7 +12,7 @@ namespace stungun.common.core
 
         public static MessageHeader Parse(ReadOnlySpan<byte> bytes)
         {
-            if (bytes == null)
+            if (bytes.IsEmpty)
                 throw new ArgumentNullException(nameof(bytes));
             if (bytes.Length < 20)
                 throw new ArgumentOutOfRangeException(nameof(bytes), "Message headers must be at least 20 bytes long");

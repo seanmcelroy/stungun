@@ -13,19 +13,16 @@ namespace stungun.common.core
         {
             get
             {
-                if (this.Value == null || this.Value.Length < 4)
+                if (Value == null || Value.Length < 4)
                     return System.Net.Sockets.AddressFamily.Unspecified;
 
-                var af = this.Value[1];
-                switch (af)
+                var af = Value[1];
+                return af switch
                 {
-                    case 0x01:
-                        return System.Net.Sockets.AddressFamily.InterNetwork;
-                    case 0x02:
-                        return System.Net.Sockets.AddressFamily.InterNetworkV6;
-                    default:
-                        return System.Net.Sockets.AddressFamily.Unknown;
-                }
+                    0x01 => System.Net.Sockets.AddressFamily.InterNetwork,
+                    0x02 => System.Net.Sockets.AddressFamily.InterNetworkV6,
+                    _ => System.Net.Sockets.AddressFamily.Unknown,
+                };
             }
         }
 
@@ -33,10 +30,10 @@ namespace stungun.common.core
         {
             get
             {
-                if (this.Value == null)
+                if (Value == null)
                     return 0;
 
-                var xPort = BitConverter.ToUInt16(new byte[] { this.Value[3], this.Value[2] });
+                var xPort = BitConverter.ToUInt16(new byte[] { Value[3], Value[2] });
                 var port = (ushort)(xPort ^ (ushort)0x2112);
                 return port;
             }
@@ -44,8 +41,10 @@ namespace stungun.common.core
             {
                 var xPort = (ushort)(value ^ (ushort)0x2112);
                 var bytes = BitConverter.GetBytes(xPort);
-                this.Value[2] = bytes[1];
-                this.Value[3] = bytes[0];
+
+                if (Value == null) { throw new InvalidOperationException("Value is null"); }
+                Value[2] = bytes[1];
+                Value[3] = bytes[0];
             }
         }
 
@@ -53,10 +52,10 @@ namespace stungun.common.core
         {
             get
             {
-                if (this.Value == null)
+                if (Value == null)
                     return IPAddress.None;
 
-                switch (this.AddressFamily)
+                switch (AddressFamily)
                 {
                     case System.Net.Sockets.AddressFamily.InterNetwork:
                         {
@@ -66,22 +65,22 @@ namespace stungun.common.core
                         }
                     case System.Net.Sockets.AddressFamily.InterNetworkV6:
                         {
-                            var l1 = ((ReadOnlySpan<byte>)this.Value).Slice(4, 4).ToArray().Reverse().ToArray();
+                            var l1 = ((ReadOnlySpan<byte>)Value).Slice(4, 4).ToArray().Reverse().ToArray();
                             var addr1 = BitConverter.ToUInt32(l1) ^ (uint)0x2112A442;
                             var b1 = MessageUtility.SwapBytes(addr1);
 
-                            var l2 = ((ReadOnlySpan<byte>)this.Value).Slice(8, 4).ToArray().Reverse().ToArray();
-                            var t2 = ((ReadOnlySpan<byte>)this.transactionId).Slice(0, 4);
+                            var l2 = ((ReadOnlySpan<byte>)Value).Slice(8, 4).ToArray().Reverse().ToArray();
+                            var t2 = ((ReadOnlySpan<byte>)transactionId).Slice(0, 4);
                             var addr2 = BitConverter.ToUInt32(l2) ^ BitConverter.ToUInt32(t2);
                             var b2 = MessageUtility.SwapBytes(addr2);
 
-                            var l3 = ((ReadOnlySpan<byte>)this.Value).Slice(12, 4).ToArray().Reverse().ToArray();
-                            var t3 = ((ReadOnlySpan<byte>)this.transactionId).Slice(4, 4);
+                            var l3 = ((ReadOnlySpan<byte>)Value).Slice(12, 4).ToArray().Reverse().ToArray();
+                            var t3 = ((ReadOnlySpan<byte>)transactionId).Slice(4, 4);
                             var addr3 = BitConverter.ToUInt32(l3) ^ BitConverter.ToUInt32(t3);
                             var b3 = MessageUtility.SwapBytes(addr3);
 
-                            var l4 = ((ReadOnlySpan<byte>)this.Value).Slice(16, 4).ToArray().Reverse().ToArray();
-                            var t4 = ((ReadOnlySpan<byte>)this.transactionId).Slice(8, 4);
+                            var l4 = ((ReadOnlySpan<byte>)Value).Slice(16, 4).ToArray().Reverse().ToArray();
+                            var t4 = ((ReadOnlySpan<byte>)transactionId).Slice(8, 4);
                             var addr4 = BitConverter.ToUInt32(l4) ^ BitConverter.ToUInt32(t4);
                             var b4 = MessageUtility.SwapBytes(addr4);
 
@@ -106,7 +105,8 @@ namespace stungun.common.core
                         {
                             var addr = MessageUtility.SwapBytes(BitConverter.ToUInt32(addrBytes) ^ (uint)0x2112A442);
                             var xAddrBytes = BitConverter.GetBytes(addr);
-                            Array.Copy(xAddrBytes, 0, this.Value, 4, 4);
+                            if (Value == null) { throw new InvalidOperationException("Value is null"); }
+                            Array.Copy(xAddrBytes, 0, Value, 4, 4);
                             break;
                         }
                     case System.Net.Sockets.AddressFamily.InterNetworkV6:
@@ -116,24 +116,25 @@ namespace stungun.common.core
                             var xb1 = MessageUtility.SwapBytes(xAddr1);
 
                             var l2 = ((ReadOnlySpan<byte>)addrBytes).Slice(4, 4).ToArray().Reverse().ToArray();
-                            var t2 = ((ReadOnlySpan<byte>)this.transactionId).Slice(0, 4);
+                            var t2 = ((ReadOnlySpan<byte>)transactionId).Slice(0, 4);
                             var xAddr2 = BitConverter.ToUInt32(l2) ^ BitConverter.ToUInt32(t2);
                             var xb2 = MessageUtility.SwapBytes(xAddr2);
 
                             var l3 = ((ReadOnlySpan<byte>)addrBytes).Slice(8, 4).ToArray().Reverse().ToArray();
-                            var t3 = ((ReadOnlySpan<byte>)this.transactionId).Slice(4, 4);
+                            var t3 = ((ReadOnlySpan<byte>)transactionId).Slice(4, 4);
                             var xAddr3 = BitConverter.ToUInt32(l3) ^ BitConverter.ToUInt32(t3);
                             var xb3 = MessageUtility.SwapBytes(xAddr3);
 
                             var l4 = ((ReadOnlySpan<byte>)addrBytes).Slice(12, 4).ToArray().Reverse().ToArray();
-                            var t4 = ((ReadOnlySpan<byte>)this.transactionId).Slice(8, 4);
+                            var t4 = ((ReadOnlySpan<byte>)transactionId).Slice(8, 4);
                             var xAddr4 = BitConverter.ToUInt32(l4) ^ BitConverter.ToUInt32(t4);
                             var xb4 = MessageUtility.SwapBytes(xAddr4);
 
-                            Array.Copy(BitConverter.GetBytes(xb1), 0, this.Value, 4, 4);
-                            Array.Copy(BitConverter.GetBytes(xb2), 0, this.Value, 8, 4);
-                            Array.Copy(BitConverter.GetBytes(xb3), 0, this.Value, 12, 4);
-                            Array.Copy(BitConverter.GetBytes(xb4), 0, this.Value, 16, 4);
+                            if (Value == null) { throw new InvalidOperationException("Value is null"); }
+                            Array.Copy(BitConverter.GetBytes(xb1), 0, Value, 4, 4);
+                            Array.Copy(BitConverter.GetBytes(xb2), 0, Value, 8, 4);
+                            Array.Copy(BitConverter.GetBytes(xb3), 0, Value, 12, 4);
+                            Array.Copy(BitConverter.GetBytes(xb4), 0, Value, 16, 4);
 
                             break;
                         }
@@ -147,7 +148,7 @@ namespace stungun.common.core
         public XorMappedAddressAttribute(byte[] transactionId)
         {
             this.transactionId = transactionId;
-            this.Type = AttributeType.XorMappedAddress;
+            Type = AttributeType.XorMappedAddress;
         }
 
         public static XorMappedAddressAttribute FromGenericAttribute(MessageAttribute attr, byte[] transactionId)

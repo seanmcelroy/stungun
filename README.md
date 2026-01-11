@@ -18,6 +18,6 @@ in the common classlib.
 
 ```./server``` contains a very simple UDP STUN server.  It will respond to STUN
 requests with the MappedAttribute and XorMappedAttribute attributes.  Building
-the project and running it with ```dotnet server.dll``` will start the server.
+the project and running it with ```dotnet run --project server/``` will start the server.
 
 Pull requests or questions are welcome!

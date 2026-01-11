@@ -7,8 +7,6 @@ namespace stungun.common.core
 {
     public struct Message
     {
-        private static readonly RNGCryptoServiceProvider RNG = new RNGCryptoServiceProvider();
-
         public MessageHeader Header;
 
         public IReadOnlyList<MessageAttribute>? Attributes;
@@ -18,8 +16,7 @@ namespace stungun.common.core
             byte[] transactionId;
             if (customTransactionId == null)
             {
-                transactionId = new byte[12];
-                RNG.GetBytes(transactionId);
+                transactionId = RandomNumberGenerator.GetBytes(12);
             }
             else
             {
@@ -46,7 +43,7 @@ namespace stungun.common.core
 
         public static Message Parse(ReadOnlySpan<byte> bytes)
         {
-            if (bytes == null)
+            if (bytes.IsEmpty)
                 throw new ArgumentNullException(nameof(bytes));
             if (bytes.Length < 20)
                 throw new ArgumentOutOfRangeException(nameof(bytes), "Messages must be at least 20 bytes long");

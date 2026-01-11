@@ -48,8 +48,11 @@ namespace stungun.common.client
                 throw new ObjectDisposedException(nameof(udpClient));
 
             udpClient.Connect(this.Hostname, this.Port);
-            var localEndpoint = (IPEndPoint)udpClient.Client.LocalEndPoint;
-            var remoteEndpoint = (IPEndPoint)udpClient.Client.RemoteEndPoint;
+
+            if (udpClient.Client.LocalEndPoint is not IPEndPoint localEndpoint)
+                throw new NotImplementedException("This client can only handle IP endpoints");
+            if (udpClient.Client.RemoteEndPoint is not IPEndPoint remoteEndpoint)
+                throw new NotImplementedException("This client can only handle IP endpoints");
 
             var sw = new Stopwatch();
             sw.Start();

@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,8 +29,8 @@ namespace stungun.common.client
             }
 
             var test1Ip =
-                   test1.Message.Attributes.Where(a => a.Type == AttributeType.XorMappedAddress).Cast<XorMappedAddressAttribute>().FirstOrDefault()?.IPAddress
-                ?? test1.Message.Attributes.Where(a => a.Type == AttributeType.MappedAddress).Cast<MappedAddressAttribute>().FirstOrDefault()?.IPAddress;
+                   test1.Message.Attributes?.Where(a => a.Type == AttributeType.XorMappedAddress).Cast<XorMappedAddressAttribute>().FirstOrDefault()?.IPAddress
+                ?? test1.Message.Attributes?.Where(a => a.Type == AttributeType.MappedAddress).Cast<MappedAddressAttribute>().FirstOrDefault()?.IPAddress;
 
             if (test1Ip == null)
                 return NatTypeRfc3489.Unknown;
@@ -44,12 +42,12 @@ namespace stungun.common.client
             using (var stunUdpClient = new StunUdpClient(stunHostname, stunPort))
             {
                 test2 = await stunUdpClient.BindingRequestAsync(
-                    new List<MessageAttribute> {
+                    [
                         new ChangeRequestAttribute {
                             ChangeIP = true,
                             ChangePort = true
                         }
-                    },
+                    ],
                     cancellationToken: cancellationToken);
             }
 
@@ -71,8 +69,8 @@ namespace stungun.common.client
                     return NatTypeRfc3489.Unknown;
 
                 var test1IpB =
-                   test1b.Message.Attributes.Where(a => a.Type == AttributeType.XorMappedAddress).Cast<XorMappedAddressAttribute>().FirstOrDefault()?.IPAddress
-                ?? test1b.Message.Attributes.Where(a => a.Type == AttributeType.MappedAddress).Cast<MappedAddressAttribute>().FirstOrDefault()?.IPAddress;
+                   test1b.Message.Attributes?.Where(a => a.Type == AttributeType.XorMappedAddress).Cast<XorMappedAddressAttribute>().FirstOrDefault()?.IPAddress
+                ?? test1b.Message.Attributes?.Where(a => a.Type == AttributeType.MappedAddress).Cast<MappedAddressAttribute>().FirstOrDefault()?.IPAddress;
 
                 if (test1IpB == null)
                     return NatTypeRfc3489.Unknown;
@@ -85,12 +83,12 @@ namespace stungun.common.client
             using (var stunUdpClient = new StunUdpClient(stunHostname, stunPort))
             {
                 var test3 = await stunUdpClient.BindingRequestAsync(
-                                new List<MessageAttribute> {
+                                [
                                     new ChangeRequestAttribute {
                                         ChangeIP = false,
                                         ChangePort = true
                                     }
-                                },
+                                ],
                                 cancellationToken: cancellationToken);
 
                 if (test3.Success)
@@ -100,9 +98,13 @@ namespace stungun.common.client
             return NatTypeRfc3489.PortRestrictedCone;
         }
 
-        public async Task<(NatMappingTypeRfc5780 mapping, NatFilteringTypeRfc5780 filtering)> DiscoverUdpRfc5780Async(CancellationToken cancellationToken = default(CancellationToken))
+#pragma warning disable IDE0060 // Remove unused parameter
+#pragma warning disable CA1822 // Mark members as static
+        public Task<(NatMappingTypeRfc5780 mapping, NatFilteringTypeRfc5780 filtering)> DiscoverUdpRfc5780Async(CancellationToken cancellationToken = default(CancellationToken))
+#pragma warning restore CA1822 // Mark members as static
+#pragma warning restore IDE0060 // Remove unused parameter
         {
-            return (mapping: NatMappingTypeRfc5780.Unknown, filtering: NatFilteringTypeRfc5780.Unknown);
+            return Task.FromResult((mapping: NatMappingTypeRfc5780.Unknown, filtering: NatFilteringTypeRfc5780.Unknown));
         }
     }
 }

@@ -22,8 +22,8 @@ namespace stungun.common.client
 
         public StunTcpClient(string hostname, int port = 3478)
         {
-            this.Hostname = hostname;
-            this.Port = port;
+            Hostname = hostname;
+            Port = port;
             tcpClient = new TcpClient();
         }
 
@@ -44,20 +44,22 @@ namespace stungun.common.client
             await Console.Error.WriteAsync("SENDING:  ");
             await Console.Error.WriteLineAsync(messageBytes.Select(b => $"{b:x2}").Aggregate((c, n) => c + n));
 
-            if (tcpClient == null)
-                throw new ObjectDisposedException(nameof(tcpClient));
+            ObjectDisposedException.ThrowIf(tcpClient == null, tcpClient);
 
-            if (!tcpClient.ConnectAsync(this.Hostname, this.Port).Wait(connectTimeout, cancellationToken))
+            if (tcpClient.Client.LocalEndPoint is not IPEndPoint localEndpoint)
+                throw new NotImplementedException("This client can only handle IP endpoints");
+            if (tcpClient.Client.RemoteEndPoint is not IPEndPoint remoteEndpoint)
+                throw new NotImplementedException("This client can only handle IP endpoints");
+
+            if (!tcpClient.ConnectAsync(Hostname, Port).Wait(connectTimeout, cancellationToken))
                 return new MessageResponse
                 {
-                    LocalEndpoint = (IPEndPoint)tcpClient.Client.LocalEndPoint,
-                    RemoteEndpoint = (IPEndPoint)tcpClient.Client.RemoteEndPoint,
+                    LocalEndpoint = localEndpoint,
+                    RemoteEndpoint = remoteEndpoint,
                     Success = false,
-                    ErrorMessage = $"Timeout connecting to {this.Hostname}:{this.Port} after {connectTimeout}ms"
+                    ErrorMessage = $"Timeout connecting to {Hostname}:{Port} after {connectTimeout}ms"
                 };
 
-            var localEndpoint = (IPEndPoint)tcpClient.Client.LocalEndPoint;
-            var remoteEndpoint = (IPEndPoint)tcpClient.Client.RemoteEndPoint;
 
             var sw = new Stopwatch();
             sw.Start();
@@ -80,7 +82,7 @@ namespace stungun.common.client
                             LocalEndpoint = localEndpoint,
                             RemoteEndpoint = remoteEndpoint,
                             Success = false,
-                            ErrorMessage = $"Timeout receiving TCP response from {this.Hostname}:{this.Port} after {sw.ElapsedMilliseconds}ms"
+                            ErrorMessage = $"Timeout receiving TCP response from {Hostname}:{Port} after {sw.ElapsedMilliseconds}ms"
                         };
                     }
 
@@ -111,7 +113,7 @@ namespace stungun.common.client
                             LocalEndpoint = localEndpoint,
                             RemoteEndpoint = remoteEndpoint,
                             Success = false,
-                            ErrorMessage = $"Timeout receiving TCP response from {this.Hostname}:{this.Port} after {sw.ElapsedMilliseconds}ms"
+                            ErrorMessage = $"Timeout receiving TCP response from {Hostname}:{Port} after {sw.ElapsedMilliseconds}ms"
                         };
 
                 } while ((bytesRead > 0 || sw.ElapsedMilliseconds < recvTimeout) && !cancellationToken.IsCancellationRequested);

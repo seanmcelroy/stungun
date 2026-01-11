@@ -1,5 +1,3 @@
-using System;
-using System.Linq;
 using Xunit;
 using stungun.common.core;
 
@@ -13,8 +11,8 @@ namespace stungun.common.tests
             var ba = ByteUtility.StringToByteArray("000100002112a442ba2cd7344e99232f23f396ce");
             var msg = Message.Parse(ba);
 
-            Assert.NotEqual(default(Message), msg);
-            Assert.NotEqual(default(MessageHeader), msg.Header);
+            Assert.NotEqual(default, msg);
+            Assert.NotEqual(default, msg.Header);
             Assert.Null(msg.Attributes);
 
             Assert.Equal(MessageType.BindingRequest, msg.Header.Type);
@@ -33,8 +31,8 @@ namespace stungun.common.tests
             var ba = ByteUtility.StringToByteArray("010100302112a442ba2cd7344e99232f23f396ce000100080001d2d968bb4fb2802b000800010d9612bfdf0c802c000800010d9712db6e12002000080001f3cb49a9ebf0");
             var msg = Message.Parse(ba);
 
-            Assert.NotEqual(default(Message), msg);
-            Assert.NotEqual(default(MessageHeader), msg.Header);
+            Assert.NotEqual(default, msg);
+            Assert.NotEqual(default, msg.Header);
             Assert.NotNull(msg.Attributes);
             Assert.Equal(4, msg.Attributes.Count);
 
@@ -93,7 +91,7 @@ namespace stungun.common.tests
                 Assert.Equal(System.Net.Sockets.AddressFamily.InterNetwork, a4t.AddressFamily);
 
                 Assert.Equal((ushort)53977, a4t.Port);
-                a4t.Port = (ushort)53977;
+                a4t.Port = 53977;
                 Assert.Equal((ushort)53977, a4t.Port);
 
                 Assert.Equal(System.Net.IPAddress.Parse("104.187.79.178"), a4t.IPAddress);
